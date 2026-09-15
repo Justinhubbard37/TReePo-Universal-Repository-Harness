@@ -14,7 +14,7 @@ Implement what the governing repository requires. Where engineering discretion i
 
 Work only in:
 
-`C:\Users\justi\Desktop\TReePo-Fable`
+`C:\Users\justi\Desktop\Claude Desktop\TReePo-Fable`
 
 Required branch:
 
