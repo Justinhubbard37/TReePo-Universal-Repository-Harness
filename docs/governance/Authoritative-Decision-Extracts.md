@@ -30,3 +30,8 @@ The following BLD decisions are current locked authority within the Director-acc
 > 2. **Ubuntu Linux under WSL2 using a repository stored inside the Linux filesystem with Git.**
 >
 > **The same authoritative-state, continuity, transaction, recovery, adapter, semantic-memory, and acceptance guarantees SHALL hold in both. Platform-specific filesystem, path, process, locking, and runtime behavior must be isolated sufficiently that neither environment defines product architecture. Broader native Linux distributions, macOS, network filesystems, shared/distributed working copies, and cloud-synchronization semantics remain outside the v1 support guarantee unless independently proven. Docker Desktop is NOT required for v1 support or acceptance. Fable may select and pin the implementation runtime/toolchain provided execution is reproducible in both supported environments.**
+
+## Semantic Processing Execution Boundary
+
+Semantic processing should follow the user's selected execution model. Local models process locally. Cloud/API models may process through the selected provider. TReePo must not silently route repository content to an additional external provider.
+
