@@ -233,3 +233,32 @@ The first full-suite run failed one assertion: the test expected `drift=false` f
 - The continuity adapter's lifecycle vocabulary is an engineering choice; it is workflow-generic and carries no domain semantics, but the contracts do not prescribe it.
 - Semantic memory does not exist yet, so the fresh-agent proof ran without it by construction; the explicit "semantic unavailable" case (H.8) is Phase 8.
 - Hydration/fast lane does not exist yet; every transition in this phase ran under full assurance.
+
+---
+
+## Phase 7 — S9 hydration / `ROUTINE_DELTA` fast lane
+
+| Item | Value |
+|---|---|
+| Date (UTC) | 2026-09-16 |
+| Parent commit | `2928c97` (Phase 6 checkpoint) |
+| Environment | Windows 11 (win32 x64), NTFS local working copy; Node.js 24.19.0; Git 2.54.0.windows.1; typescript 6.0.3 |
+| Commands | `npm run typecheck` (exit 0); `npm test` (exit 0), both captured directly into the evidence run directory |
+| Test totals | 168 tests, 35 suites: **168 pass, 0 fail, 0 skipped** (11 new in this phase); first captured run green |
+| Evidence runs | `evidence/phase-7/run-20260916T181314Z` — authoritative (see `evidence/phase-7/INDEX.md`; ignored; delivered outside the repository) |
+
+From this phase on, every full-suite run (including development iterations) is captured into its own `evidence/phase-N/run-<timestamp>/` directory and appended to the phase index, so failed attempts are preserved as files by construction.
+
+### Delivered
+
+- `src/hydration/capability.ts` — ED-12 capability: the caller holds a 256-bit random secret (token `sessionId.secret`, returned once); TReePo persists only an HMAC-SHA256 verifier under `.treepo/runtime/session/capability.json` keyed by the secret over `{ currentStateId, sessionId, workingCopyFingerprint }`, where the fingerprint is the digest of the ED-18 `workingCopy` partition. A wrong secret, a different working copy, a rewound or advanced checkpoint, or a different session all fail the same constant-time check. Wall-clock expiry (default 8 h) applies to this runtime record only; nothing authoritative carries time. `evaluateEligibility` is a pure, total predicate: every doubt is "not eligible".
+- `src/hydration/index.ts` — `hydrate`: full assurance (orientation, validation checks 1–6, anchored authorization set, no pending recovery) and only then issuance, with a fresh session identity each time. `routineTransition`: for `progress` and `checkpoint` only, when eligible, skips re-orientation and adapter rediscovery/prerequisites while the core transaction still runs authoritative integrity, complete lineage, divergence, parse, authorization-set, lock, and stale-working-copy validation; on success the capability rotates to the new state (prior secret dead); on failure the capability is removed and no success is reported. Every ineligible or uncertain case removes any prior capability, runs full assurance, and rehydrates.
+- Runner option `skipAdapterRediscovery` (routine path only); harness `hydrateProject`/`routine`; CLI `hydrate` and `--session <token>` on `progress`/`checkpoint`.
+- Tests: `hydration.test.ts` covering Acceptance I b.1–b.17 (issue-after-full, HMAC binding, entropy, no secret persistence anywhere under `.treepo/`, expiry, rotation, prior-secret invalidation, new identity on rehydration, each assurance boundary, wrong secret/checkpoint/copy including a real clone, failed publication with recovery, lost response, no bypass with a tampered historical object and revoked authority on the routine path, deterministic predicate, full-assurance fallback, fast lane disabled, capability file runtime-only) plus RFP-04 (routine case), RFP-07 and RFP-08.
+
+### Honest limits recorded
+
+- **Secret confidentiality on Windows.** The capability file is written with mode 0600 and `setPrivate` where supported; on win32 no ACL restriction is applied (Phase 1 limit), so confidentiality of the *verifier* file relies on the working copy's location. The secret itself is never written by TReePo; it is returned to the caller on stdout once, and the caller is responsible for keeping it out of logs.
+- **Expiry is wall-clock** for the runtime capability only, which is acceptable for an ephemeral operational credential; authoritative state remains free of timestamps.
+- **What the fast lane skips** is exactly re-orientation and adapter rediscovery/prerequisite re-checks; the skipped list is reported in every routine result. No numeric performance target is claimed or measured (Acceptance I b.17 asks only that the reduced path is exercised).
+- Hydration is refused while a recovery is pending or validation fails; it does not perform recovery itself.

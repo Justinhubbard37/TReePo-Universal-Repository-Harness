@@ -10,7 +10,7 @@ import { isTreepoError, UsageError } from "../core/errors.ts";
 import { sha256Hex } from "../core/hash.ts";
 import { renderOrientation } from "../orient/index.ts";
 import { selectPlatform } from "../platform/index.ts";
-import { adapters, current, observe, openProject, orientProject, recover, refreshAgentEntry, routeIntent, status } from "../harness/index.ts";
+import { adapters, current, hydrateProject, observe, openProject, orientProject, recover, refreshAgentEntry, routeIntent, routine, status } from "../harness/index.ts";
 import { assertPinnedRuntime, PINNED_NODE_VERSION } from "./runtime-gate.ts";
 
 export interface CliIo {
@@ -66,9 +66,10 @@ commands:
   authorize grant --adapter <id> --capability <name>[,<name>] --grantor <label> --statement <text> --requester <label> [--expires-after <seqs>]
   authorize revoke --grant <grantId> --grantor <label> --statement <text> --requester <label>
   orient [--text] [--write-entry] fresh-agent orientation from durable state only
+  hydrate [--ttl-ms <n>]          full assurance, then a session token for the routine fast lane
   begin --work <label> --next <text> --requester <label>
-  progress --done <id>[=<note>] [--done ...] --next <text> --requester <label>
-  checkpoint --label <text> [--next <text>] --requester <label>
+  progress --done <id>[=<note>] [--done ...] --next <text> --requester <label> [--session <token>]
+  checkpoint --label <text> [--next <text>] --requester <label> [--session <token>]
   pause --next <text> --requester <label>
   resume [--next <text>] --requester <label>
   handoff --to <label> [--next <text>] --requester <label>
@@ -208,6 +209,13 @@ export async function run(argv: readonly string[], io: CliIo): Promise<number> {
         else json(o);
         return o.ok ? 0 : 1;
       }
+      case "hydrate": {
+        const project = await openProject(io.cwd);
+        const ttl = text(flags, "ttl-ms");
+        const h = await hydrateProject(project, ttl === undefined ? {} : { ttlMs: Number(ttl) });
+        json({ assurance: h.assurance, token: h.token, sessionId: h.sessionId, expiresAt: h.expiresAt, boundStateId: h.boundStateId, nextAction: h.orientation.nextAction, position: h.orientation.position });
+        return 0;
+      }
       case "begin":
       case "progress":
       case "checkpoint":
@@ -215,9 +223,16 @@ export async function run(argv: readonly string[], io: CliIo): Promise<number> {
       case "resume":
       case "handoff": {
         const project = await openProject(io.cwd);
+        const action = command as (typeof WORKFLOW_ACTIONS)[number];
+        const session = text(flags, "session");
+        if (session !== undefined) {
+          const r = await routine(project, { adapterId: CONTINUITY_ID, action, input: workflowInput(action, argv, flags), requester: required(flags, "requester"), token: session });
+          await refreshAgentEntry(project);
+          json({ path: r.path, eligibility: r.eligibility, skipped: r.skipped, result: r.outcome.result, nextAction: r.outcome.plan.nextAction, position: r.outcome.plan.position, nextToken: r.nextToken, sessionId: r.sessionId });
+          return 0;
+        }
         const state = await current(project);
         const facts = await observe(project);
-        const action = command as (typeof WORKFLOW_ACTIONS)[number];
         const outcome = await runWorkflowTransition(project, {
           adapterId: CONTINUITY_ID,
           action,

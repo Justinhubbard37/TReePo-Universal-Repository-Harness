@@ -12,6 +12,7 @@ import { requireValidState, validateAuthoritativeState, type ValidatedState, typ
 import { loadAnchoredAuthz } from "../core/authz/index.ts";
 import { adapterStatuses, createRegistry, readInstalledRecords, route, type AdapterImplementation, type AdapterStatus, type Registry, type RouteResult } from "../adapters/index.ts";
 import { orient, writeAgentEntry, type Orientation } from "../orient/index.ts";
+import { hydrate, routineTransition, type HydrateOptions, type Hydration, type RoutineOutcome, type RoutineRequest } from "../hydration/index.ts";
 import { acquireLock, clearStaleLock, type ClearStaleLockResult } from "../core/tx/lock.ts";
 import { publishTransition, type BuildContext, type PublishPhase, type PublishResult } from "../core/tx/publish.ts";
 import { recoverIncomplete, type RecoveryReport } from "../core/tx/recover.ts";
@@ -56,6 +57,16 @@ export async function routeIntent(project: Project, intent: string): Promise<Rou
 /** Fresh-agent orientation derived from durable state and live facts only. */
 export function orientProject(project: Project): Promise<Orientation> {
   return orient(project.platform, project.layout, project.registry);
+}
+
+/** Full hydration: full assurance, then a session capability for the routine fast lane. */
+export function hydrateProject(project: Project, options: HydrateOptions = {}): Promise<Hydration> {
+  return hydrate(project, options);
+}
+
+/** A workflow transition that may take the routine fast lane when deterministically eligible; full assurance otherwise. */
+export function routine(project: Project, request: RoutineRequest): Promise<RoutineOutcome> {
+  return routineTransition(project, request);
 }
 
 export async function refreshAgentEntry(project: Project): Promise<{ readonly path: string; readonly orientation: Orientation }> {

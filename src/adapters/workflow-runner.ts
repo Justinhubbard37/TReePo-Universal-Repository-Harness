@@ -25,6 +25,12 @@ export interface WorkflowRequest {
   readonly requester: string;
   readonly expectedPredecessorId: string;
   readonly expectedWorkingCopy: WorkingCopyFacts;
+  /**
+   * Routine fast lane only (BLD-001B): skip adapter rediscovery (installed
+   * record, compatibility, environment and workflow prerequisites). The core
+   * transaction, declared-capability, active and authority checks always run.
+   */
+  readonly skipAdapterRediscovery?: boolean;
   readonly observer?: (step: ActivationLayer | PublishPhase) => void;
 }
 
@@ -45,7 +51,13 @@ export async function runWorkflowTransition(env: Env, request: WorkflowRequest):
   note("1:core-integrity");
   const state = await requireValidState(env.layout);
   const facts = await observeRepository(env.platform, env.layout.root);
-  const impl = await resolveInstalledAdapter(env, request.adapterId, note, state, facts);
+  let impl;
+  if (request.skipAdapterRediscovery === true) {
+    impl = env.registry.find(request.adapterId);
+    if (impl === undefined) throw new ContinuityError({ code: "ADAPTER_UNAVAILABLE", message: `adapter ${request.adapterId} is not available in this core`, details: { adapterId: request.adapterId } });
+  } else {
+    impl = await resolveInstalledAdapter(env, request.adapterId, note, state, facts);
+  }
   if (!isWorkflowAdapter(impl)) {
     throw new ContinuityError({ code: "ADAPTER_NOT_WORKFLOW", message: `adapter ${request.adapterId} is not a workflow adapter`, details: { adapterId: request.adapterId } });
   }
