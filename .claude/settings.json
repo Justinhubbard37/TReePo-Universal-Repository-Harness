@@ -1,0 +1,32 @@
+{
+    "$schema":  "https://json.schemastore.org/claude-code-settings.json",
+    "permissions":  {
+                        "blockReadsOutsideWorkingDirectories":  true,
+                        "deny":  [
+                                     "Edit(/AGENTS.md)",
+                                     "Edit(/.gitattributes)",
+                                     "Edit(/docs/baseline/**)",
+                                     "Edit(/docs/governance/**)",
+                                     "Edit(/handoff/Fable-Handoff-Requirements.md)",
+                                     "Edit(/handoff/Fable-Execution-Prompt.md)",
+                                     "Edit(/.claude/settings.json)",
+                                     "Edit(/.claude/settings.local.json)",
+                                     "PowerShell(git push *)",
+                                     "PowerShell(git remote add *)",
+                                     "PowerShell(git remote set-url *)",
+                                     "PowerShell(git reset *)",
+                                     "PowerShell(git clean *)",
+                                     "PowerShell(git rebase *)",
+                                     "PowerShell(git commit --amend *)",
+                                     "PowerShell(git branch -D *)",
+                                     "Bash(git push *)",
+                                     "Bash(git remote add *)",
+                                     "Bash(git remote set-url *)",
+                                     "Bash(git reset *)",
+                                     "Bash(git clean *)",
+                                     "Bash(git rebase *)",
+                                     "Bash(git commit --amend *)",
+                                     "Bash(git branch -D *)"
+                                 ]
+                    }
+}
