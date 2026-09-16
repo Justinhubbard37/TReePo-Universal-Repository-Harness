@@ -164,6 +164,8 @@ Do not:
 
 unless explicitly authorized.
 
+Claude must not use alternate commands, tools, scripts, direct `.git` manipulation, or filesystem operations to achieve an effect explicitly prohibited by the project permission policy or execution controls. If such an effect is required, stop and escalate to the Director rather than attempting a workaround.
+
 Local commits on `fable/implementation` are permitted when appropriate.
 
 Prefer repository-local, reproducible tooling.
