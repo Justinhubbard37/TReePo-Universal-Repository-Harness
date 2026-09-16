@@ -13,8 +13,10 @@ import type { Layout } from "../core/state/layout.ts";
 import type { NextAction } from "../core/state/schema.ts";
 import { requireValidState, validateAuthoritativeState } from "../core/state/validate.ts";
 import { SemanticError } from "./errors.ts";
+import { readInstalledRecords, type InstalledRecord } from "../adapters/registry.ts";
+import type { StoredObject } from "../core/state/store.ts";
 import { discardSemantic, healthOf, openSemantic, semanticDbPath, type SemanticDb, type SemanticHealth } from "./store.ts";
-import { collectDocuments, type SemanticDocument, type SemanticSource } from "./sources.ts";
+import { collectDocuments, digestOfSurfaced, documentForAdapter, documentForAuthz, documentForState, type SemanticDocument, type SemanticSource } from "./sources.ts";
 
 export const CANDIDATE_NOTE = "Semantic results are context candidates only; deterministic authoritative state wins on any conflict and is reported alongside.";
 
@@ -89,7 +91,18 @@ export async function rebuildSemantic(layout: Layout): Promise<IndexResult & { r
  *   (anchored-eligible / anchored-ineligible / not-anchored);
  *   other sources → not-applicable.
  */
-export type LineageRelation = "current" | "on-lineage" | "not-on-lineage" | "anchored-eligible" | "anchored-ineligible" | "not-anchored" | "not-applicable";
+export type LineageRelation =
+  | "current"
+  | "on-lineage"
+  | "not-on-lineage"
+  | "anchored-eligible"
+  | "anchored-ineligible"
+  | "not-anchored"
+  /** The reference names a real deterministic source but the surfaced content no longer corresponds to it. */
+  | "content-mismatch"
+  | "not-applicable";
+
+const CONTENT_MISMATCH = "semantic content does not correspond to the deterministic source it references (stale, corrupted, or tampered index entry); deterministic truth wins and the content must not be relied upon";
 
 export interface SemanticCandidate {
   readonly ref: string;
@@ -152,17 +165,42 @@ export async function querySemantic(layout: Layout, text: string, limit = 10): P
   let chainIds = new Set<string>();
   // The deterministic authority state is loaded independently of the index so every authorization-like candidate can be compared against it.
   let anchored: readonly AuthzRecord[] | null = null;
+  const chainById = new Map<string, StoredObject>();
+  let installed: readonly InstalledRecord[] = [];
   if (validation.ok) {
     const state = await requireValidState(layout);
     authoritative = { stateId: state.current.id, seq: state.current.object.seq, nextAction: state.current.object.core.nextAction };
     chainIds = new Set(state.chain.map((s) => s.id));
+    for (const s of state.chain) chainById.set(s.id, s);
     try {
       anchored = await loadAnchoredAuthz(layout, state);
     } catch (error) {
       if (!isTreepoError(error)) throw error;
       anchored = null;
     }
+    try {
+      installed = await readInstalledRecords(layout);
+    } catch (error) {
+      if (!isTreepoError(error)) throw error;
+      installed = [];
+    }
   }
+  /** Re-derive the document from the live deterministic source; undefined when the reference names no such source. */
+  const expectedDocument = (ref: string, source: SemanticSource): SemanticDocument | undefined => {
+    if (source === "state") {
+      const s = chainById.get(ref.slice("state:".length));
+      return s === undefined ? undefined : documentForState(s);
+    }
+    if (source === "authz") {
+      const r = anchored?.find((a) => a.grantId === ref.slice("authz:".length));
+      return r === undefined ? undefined : documentForAuthz(r);
+    }
+    if (source === "adapter") {
+      const a = installed.find((i) => i.id === ref.slice("adapter:".length));
+      return a === undefined ? undefined : documentForAdapter(a);
+    }
+    return undefined;
+  };
   const handle = await openSemantic(layout, { create: false });
   try {
     const db = handle.db;
@@ -177,7 +215,14 @@ export async function querySemantic(layout: Layout, text: string, limit = 10): P
       let relation: LineageRelation = "not-applicable";
       let conflict: string | null = null;
       let authorityClaim = false;
-      if (r.source === "state") {
+      // A valid reference proves nothing about the surfaced content: compare it with a fresh derivation from the deterministic source.
+      const expected = expectedDocument(r.ref, r.source);
+      const contentMatches = expected === undefined ? null : digestOfSurfaced(r.ref, r.source, r.seq, r.title, r.body) === expected.digest;
+      if (contentMatches === false) {
+        relation = "content-mismatch";
+        conflict = CONTENT_MISMATCH;
+        authorityClaim = r.source === "authz" || AUTHORITY_LANGUAGE.test(`${r.title}\n${r.body}`);
+      } else if (r.source === "state") {
         const id = r.ref.slice("state:".length);
         if (authoritative === null) {
           relation = "not-applicable";
@@ -195,7 +240,7 @@ export async function querySemantic(layout: Layout, text: string, limit = 10): P
         conflict = related.conflict;
       }
       // Any non-authoritative source that reads like an approval is contradicted by deterministic authority by construction.
-      if (relation !== "current" && relation !== "on-lineage" && r.source !== "authz" && AUTHORITY_LANGUAGE.test(`${r.title}\n${r.body}`)) {
+      if (relation !== "current" && relation !== "on-lineage" && relation !== "content-mismatch" && r.source !== "authz" && AUTHORITY_LANGUAGE.test(`${r.title}\n${r.body}`)) {
         authorityClaim = true;
         conflict = conflict ?? `contains authorization-like language but is not an anchored eligible authorization record; deterministic authority wins and ${NO_AUTHORITY}`;
       }

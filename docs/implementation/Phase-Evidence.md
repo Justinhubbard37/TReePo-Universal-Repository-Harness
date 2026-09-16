@@ -328,3 +328,33 @@ From this phase on, every full-suite run (including development iterations) is c
 ### Resulting Phase 8 status
 
 Complete with corrections; all previously accepted Phase 8 behavior remains green (deletion, corruption, locking, rebuild, fresh-agent continuation with the store unavailable, no mutation of authoritative truth, static isolation, ED-13 lexical-only retrieval, no network).
+
+---
+
+## Phase 8 — second correction pass (regulator-discovered bypass)
+
+| Item | Value |
+|---|---|
+| Date (UTC) | 2026-09-16 |
+| Parent commit | `aaeef46` (first Phase 8 correction checkpoint) |
+| Scope | Continuation of the Phase 8 conflict-surfacing correction. No architecture, engineering decision, governing document, or Phase 9 work touched. |
+| What remained incomplete after `aaeef46` | Candidates were related to deterministic truth by reference identity only. A semantic entry could keep the reference of the real current state, an older lineage state, or a real anchored eligible grant while its searchable content was replaced with false material, and still be reported as `current` / `on-lineage` / `anchored-eligible` with `conflict: null`. Deterministic authority was never affected. |
+| Reproduction | Both regulator cases reproduced against `aaeef46` before any change: the new regression file failed 4/4 (`evidence/phase-8/correction2-*/repro.log`). |
+| Verification after correction | new targeted 4/4; prior correction regressions 7/7; H-series/semantic-isolation set (5 files) 24/24; `npm run typecheck` exit 0; full suite **192 pass, 0 fail, 0 skipped**, first attempt |
+| Evidence runs | **`run-20260916T213228Z` (authoritative after the second correction)**; all earlier Phase 8 runs and both correction directories preserved. See `evidence/phase-8/INDEX.md`. |
+
+### Root cause
+
+`querySemantic` decided a candidate's relation (`current`, `on-lineage`, `anchored-eligible`, …) from its reference alone. The content that is actually surfaced to the reader (the FTS row's title and body) was never compared with the deterministic source the reference names.
+
+### Correction mechanism (within the existing design)
+
+The indexer already derives every deterministic-source document by one fixed function per source and stores its content digest. Those derivations are now the single definition (`documentForState`, `documentForAuthz`, `documentForAdapter`), and the query re-derives the document from the **live** deterministic source (the validated chain object, the anchored authorization record, the installed-adapter record) and compares its digest with the digest of the surfaced content. Any difference yields the new relation `content-mismatch` with an explicit conflict note; only content that matches its source can be labelled `current`, `on-lineage`, or `anchored-eligible`. Git commit messages have no TReePo deterministic source and keep `not-applicable`. Retrieval and ranking are unchanged; the metadata remains advisory. Nothing new was introduced: no signing, no provenance subsystem, no authority mechanism.
+
+### Regression tests added
+
+`test/integration/semantic-correction-2.test.ts`: `#state-content-mismatch` (real current reference, false content), `#state-content-mismatch-lineage` (older lineage reference, false content; an untouched document keeps its relation), `#authz-content-mismatch` (real anchored eligible grant reference, false authority content; the real grant still covers only what the record says), `#poison-zero-effect` (every deterministic-source document poisoned at once: authoritative bytes, current-state selection, validation, authorization answers, a routine fast-lane transition and a lifecycle transition are all unaffected, and a rebuild restores clean content). No existing assertion was weakened or changed.
+
+### Resulting Phase 8 status
+
+Complete with two corrections; all previously accepted Phase 8 behavior remains green.
