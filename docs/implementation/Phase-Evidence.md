@@ -262,3 +262,33 @@ From this phase on, every full-suite run (including development iterations) is c
 - **Expiry is wall-clock** for the runtime capability only, which is acceptable for an ephemeral operational credential; authoritative state remains free of timestamps.
 - **What the fast lane skips** is exactly re-orientation and adapter rediscovery/prerequisite re-checks; the skipped list is reported in every routine result. No numeric performance target is claimed or measured (Acceptance I b.17 asks only that the reduced path is exercised).
 - Hydration is refused while a recovery is pending or validation fails; it does not perform recovery itself.
+
+---
+
+## Phase 8 — S10 semantic SQLite subsystem
+
+| Item | Value |
+|---|---|
+| Date (UTC) | 2026-09-16 |
+| Parent commit | `f4f1e21` (Phase 7 checkpoint) |
+| Environment | Windows 11 (win32 x64), NTFS local working copy; Node.js 24.19.0 with bundled SQLite 3.53.3 (FTS5); Git 2.54.0.windows.1; typescript 6.0.3 |
+| Commands | `npm run typecheck` (exit 0); `npm test` (exit 0), captured directly into the evidence run directory |
+| Test totals | 181 tests, 38 suites: **181 pass, 0 fail, 0 skipped** (13 new in this phase); first captured run green |
+| Evidence runs | `evidence/phase-8/run-20260916T193805Z` — authoritative (see `evidence/phase-8/INDEX.md`; ignored; delivered outside the repository) |
+
+### Delivered
+
+- `src/semantic/store.ts` — ED-05: `node:sqlite` store at `.treepo/runtime/memory.sqlite` (runtime, Git-ignored, outside authoritative truth and outside the BLD-004 transport payload). Schema v1: `documents`, FTS5 `documents_fts` (porter/unicode61), `meta`, and a reserved, unused `embeddings` table (ED-13). Open failures are classified as missing / corrupt / locked / incompatible / unavailable; the store can be discarded outright.
+- `src/semantic/sources.ts` — eligible sources read through core read APIs only: every state object on the current lineage (transition, requester, position, exact next action, completed/accepted ids, adapter state), anchored authorization records, the adapter registry, and up to 500 commit messages reachable from HEAD via the Git adapter. Tracked file contents are not indexed in v1.
+- `src/semantic/index.ts` — incremental index (digest-based, removes vanished documents), rebuild (discard then index), lexical BM25 query, and status. Every query response carries the deterministic snapshot taken from validation (current state id, sequence, exact next action), a `staleIndex` flag, and per-candidate lineage relation (`current`, `on-lineage`, `not-on-lineage`, `not-applicable`) with an explicit conflict note, so deterministic state visibly wins. Status reports semantic health and deterministic continuity in separate fields.
+- `src/semantic/errors.ts` — `SemanticError` (category `semantic`), distinct from `ContinuityError`; CLI exit code 3 for semantic failures versus 1 for continuity/platform and 2 for usage.
+- Harness `semantic.status|index|rebuild|query`; CLI `semantic status|index|rebuild|query --q`.
+- Static isolation test: `src/semantic` cannot import the transaction layer, pointer encoding, platform, hydration, bootstrap, harness, or CLI, and references no write/lock/publish function; no deterministic module (`core`, `adapters`, `bootstrap`, `orient`, `hydration`, `platform`) imports the semantic subsystem or `node:sqlite`.
+- Tests: `semantic.test.ts` (H.1, H.2, H.5, H.6, H.9; SEM 9.3, 9.4, 9.6, 9.7, 9.9; incremental sync) and `semantic-isolation.test.ts` (H.3, H.4, H.7, H.8; SEM 9.1, 9.2, 9.5, 9.8, 9.10: delete, random-byte corruption, truncation, exclusive lock held by another connection, a planted high-ranking "approval" document that confers nothing, fresh Agent B orienting with the store deleted, corrupted, and locked, and error-taxonomy separation), plus a CLI round-trip.
+
+### Honest limits recorded
+
+- **Retrieval is lexical only** (FTS5 BM25 over declared text), exactly as ED-13 and the Director's decision fix for v1. No embeddings, no model, no network. "Useful" retrieval is demonstrated on the indexed sources, not claimed for arbitrary content.
+- **Lock detection relies on SQLite's rollback-journal locking** with a zero busy timeout; a reader blocked by an exclusive writer is reported as `locked`. WAL mode is not used, so a concurrent long-lived exclusive transaction can make the store temporarily unavailable; this degrades retrieval only.
+- **Index freshness is the caller's responsibility**: the store is synchronized by explicit `index`/`rebuild`, and `staleIndex` tells the caller when the store lags the current state. Automatic post-publication indexing is deliberately absent so that no deterministic path depends on, or even touches, the store.
+- The Phase 1 win32 limits (no directory fsync, no per-file ACL restriction) apply to the runtime store as to other runtime files.

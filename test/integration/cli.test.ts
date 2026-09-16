@@ -83,6 +83,20 @@ describe("treepo CLI", () => {
       const text = await treepo(repo.root, "orient", "--text");
       assert.match(String(text.json), /Exact next action/);
 
+      // Semantic memory through the CLI: missing → exit 3 (semantic, not continuity), then index and query.
+      const missing = await treepo(repo.root, "semantic", "query", "--q", "tests");
+      assert.equal(missing.code, 3);
+      assert.equal((missing.json as { error: { category: string } }).error.category, "semantic");
+      const idx = await treepo(repo.root, "semantic", "index");
+      assert.equal(idx.code, 0, JSON.stringify(idx.json));
+      const sq = await treepo(repo.root, "semantic", "query", "--q", "run the tests");
+      assert.equal(sq.code, 0);
+      const sqj = sq.json as { candidates: { relation: string }[]; authoritative: { nextAction: { description: string } } };
+      assert.equal(sqj.authoritative.nextAction.description, "run the tests");
+      assert.ok(sqj.candidates.length > 0);
+      const sst = await treepo(repo.root, "semantic", "status");
+      assert.equal((sst.json as { health: string }).health, "ok");
+
       const unknown = await treepo(repo.root, "frobnicate");
       assert.equal(unknown.code, 2);
 

@@ -13,6 +13,7 @@ import { loadAnchoredAuthz } from "../core/authz/index.ts";
 import { adapterStatuses, createRegistry, readInstalledRecords, route, type AdapterImplementation, type AdapterStatus, type Registry, type RouteResult } from "../adapters/index.ts";
 import { orient, writeAgentEntry, type Orientation } from "../orient/index.ts";
 import { hydrate, routineTransition, type HydrateOptions, type Hydration, type RoutineOutcome, type RoutineRequest } from "../hydration/index.ts";
+import { indexSemantic, querySemantic, rebuildSemantic, semanticStatus, type IndexResult, type SemanticQueryResult, type SemanticStatus } from "../semantic/index.ts";
 import { acquireLock, clearStaleLock, type ClearStaleLockResult } from "../core/tx/lock.ts";
 import { publishTransition, type BuildContext, type PublishPhase, type PublishResult } from "../core/tx/publish.ts";
 import { recoverIncomplete, type RecoveryReport } from "../core/tx/recover.ts";
@@ -68,6 +69,14 @@ export function hydrateProject(project: Project, options: HydrateOptions = {}): 
 export function routine(project: Project, request: RoutineRequest): Promise<RoutineOutcome> {
   return routineTransition(project, request);
 }
+
+/** Semantic memory (subordinate, non-authoritative): status, incremental index, rebuild, query. */
+export const semantic = {
+  status: (project: Project): Promise<SemanticStatus> => semanticStatus(project.layout),
+  index: (project: Project): Promise<IndexResult> => indexSemantic(project.layout),
+  rebuild: (project: Project): Promise<IndexResult & { readonly discarded: boolean }> => rebuildSemantic(project.layout),
+  query: (project: Project, text: string, limit?: number): Promise<SemanticQueryResult> => querySemantic(project.layout, text, limit),
+};
 
 export async function refreshAgentEntry(project: Project): Promise<{ readonly path: string; readonly orientation: Orientation }> {
   const orientation = await orientProject(project);

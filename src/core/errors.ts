@@ -8,7 +8,8 @@
 // Engineering discretion: AGENTS.md §12 "internal logging and error
 // architecture".
 
-export type ErrorCategory = "continuity" | "platform" | "usage";
+/** "semantic" is reserved for the semantic subsystem's own error class (src/semantic/errors.ts); core never raises it. */
+export type ErrorCategory = "continuity" | "platform" | "usage" | "semantic";
 
 export interface TreepoErrorInit {
   readonly code: string;

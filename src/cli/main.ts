@@ -10,7 +10,7 @@ import { isTreepoError, UsageError } from "../core/errors.ts";
 import { sha256Hex } from "../core/hash.ts";
 import { renderOrientation } from "../orient/index.ts";
 import { selectPlatform } from "../platform/index.ts";
-import { adapters, current, hydrateProject, observe, openProject, orientProject, recover, refreshAgentEntry, routeIntent, routine, status } from "../harness/index.ts";
+import { adapters, current, hydrateProject, observe, openProject, orientProject, recover, refreshAgentEntry, routeIntent, routine, semantic, status } from "../harness/index.ts";
 import { assertPinnedRuntime, PINNED_NODE_VERSION } from "./runtime-gate.ts";
 
 export interface CliIo {
@@ -73,6 +73,8 @@ commands:
   pause --next <text> --requester <label>
   resume [--next <text>] --requester <label>
   handoff --to <label> [--next <text>] --requester <label>
+  semantic status|index|rebuild    local SQLite semantic memory (subordinate; never authoritative)
+  semantic query --q <text> [--limit <n>]
   version
 `;
 
@@ -209,6 +211,29 @@ export async function run(argv: readonly string[], io: CliIo): Promise<number> {
         else json(o);
         return o.ok ? 0 : 1;
       }
+      case "semantic": {
+        const project = await openProject(io.cwd);
+        const [sub] = positional;
+        if (sub === "status") {
+          json(await semantic.status(project));
+          return 0;
+        }
+        if (sub === "index") {
+          json(await semantic.index(project));
+          return 0;
+        }
+        if (sub === "rebuild") {
+          json(await semantic.rebuild(project));
+          return 0;
+        }
+        if (sub === "query") {
+          const limit = text(flags, "limit");
+          json(await semantic.query(project, required(flags, "q"), limit === undefined ? undefined : Number(limit)));
+          return 0;
+        }
+        io.err(USAGE);
+        return 2;
+      }
       case "hydrate": {
         const project = await openProject(io.cwd);
         const ttl = text(flags, "ttl-ms");
@@ -283,7 +308,8 @@ export async function run(argv: readonly string[], io: CliIo): Promise<number> {
   } catch (error) {
     if (isTreepoError(error)) {
       json({ error: { code: error.code, category: error.category, message: error.message, details: error.details } });
-      return error.category === "usage" ? 2 : 1;
+      // Semantic failures degrade retrieval only (exit 3), distinct from continuity/platform failures (1) and usage (2).
+      return error.category === "usage" ? 2 : error.category === "semantic" ? 3 : 1;
     }
     throw error;
   }
