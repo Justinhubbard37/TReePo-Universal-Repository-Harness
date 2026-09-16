@@ -142,23 +142,39 @@ export function createBasePlatform(specifics: PlatformSpecifics, faults: FaultIn
     },
 
     async createExclusive(path, data, options: ExclusiveCreateOptions) {
+      // Content-atomic exclusive creation: the bytes are fully written and
+      // synced to a same-directory temp file before a hard link publishes them
+      // under the final name. link() fails atomically with EEXIST if the name
+      // exists, and a reader that sees the final name always sees complete
+      // bytes (no torn read of a lock mid-creation).
       if (faults.shouldFail(`create:${options.label}`)) throw injected(`create:${options.label}`);
-      let handle: fs.FileHandle | undefined;
+      const temp = tempNameFor(path, p);
       try {
-        handle = await fs.open(path, "wx", options.mode);
+        await fs.writeFile(temp, data, options.mode === undefined ? { flag: "wx" } : { flag: "wx", mode: options.mode });
       } catch (cause) {
-        if ((cause as { code?: unknown } | null)?.code === "EEXIST") return false;
-        throw wrap("CREATE_FAILED", options.label, path, cause);
+        throw wrap("WRITE_FAILED", options.label, temp, cause);
       }
       try {
-        await handle.writeFile(data);
-        await handle.sync();
-      } catch (cause) {
-        throw wrap("WRITE_FAILED", options.label, path, cause);
+        await fsyncPath(temp, options.label);
+        try {
+          await fs.link(temp, path);
+        } catch (cause) {
+          if ((cause as { code?: unknown } | null)?.code === "EEXIST") return false;
+          throw wrap("CREATE_FAILED", options.label, path, cause);
+        }
+        return true;
       } finally {
-        await handle.close();
+        await fs.rm(temp, { force: true });
       }
-      return true;
+    },
+
+    async removeFile(path, options: OperationOptions) {
+      if (faults.shouldFail(`unlink:${options.label}`)) throw injected(`unlink:${options.label}`);
+      try {
+        await fs.rm(path, { force: true });
+      } catch (cause) {
+        throw wrap("UNLINK_FAILED", options.label, path, cause);
+      }
     },
 
     isProcessAlive(pid): ProcessLiveness {

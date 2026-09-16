@@ -101,18 +101,32 @@ export interface WriteObjectResult {
   readonly created: boolean;
 }
 
+/**
+ * Write-once object creation via same-directory temp file, fsync, and atomic
+ * rename (ED-09), so a final-named object file is always complete. Callers
+ * hold the writer lock, which excludes the check-then-write race.
+ */
 export async function writeObject(platform: Platform, layout: Layout, object: StateObject, label: string): Promise<WriteObjectResult> {
   const { id, bytes } = identify(object);
   const path = objectFile(layout, id);
-  const created = await platform.createExclusive(path, bytes, { label });
-  if (created) return { id, created: true };
-  const existing = await fs.readFile(path);
-  if (bytesEqual(existing, bytes)) return { id, created: false };
-  throw new ContinuityError({
-    code: "OBJECT_COLLISION",
-    message: `object ${id} exists with different bytes`,
-    details: { id, path },
-  });
+  let existing: Uint8Array | undefined;
+  try {
+    existing = await fs.readFile(path);
+  } catch (cause) {
+    if ((cause as { code?: unknown }).code !== "ENOENT") {
+      throw new ContinuityError({ code: "OBJECT_UNREADABLE", message: `object ${id} unreadable`, details: { id, path }, cause });
+    }
+  }
+  if (existing !== undefined) {
+    if (bytesEqual(existing, bytes)) return { id, created: false };
+    throw new ContinuityError({
+      code: "OBJECT_COLLISION",
+      message: `object ${id} exists with different bytes`,
+      details: { id, path },
+    });
+  }
+  await platform.writeFileAtomic(path, bytes, { label });
+  return { id, created: true };
 }
 
 export async function readCurrent(layout: Layout): Promise<CurrentPointer> {

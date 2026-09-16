@@ -70,6 +70,9 @@ export interface Platform {
   /** Create `path` with `data` only if it does not exist. Returns false (and writes nothing) if it exists. */
   createExclusive(path: string, data: Uint8Array, options: ExclusiveCreateOptions): Promise<boolean>;
 
+  /** Remove a single file. Missing files are not an error. */
+  removeFile(path: string, options: OperationOptions): Promise<void>;
+
   /** Whether a process id currently refers to a live process, as far as the platform can tell. */
   isProcessAlive(pid: number): ProcessLiveness;
 

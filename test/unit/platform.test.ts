@@ -121,6 +121,21 @@ describe("filesystem primitives", () => {
     });
   });
 
+  it("removeFile removes a file, tolerates a missing one, and honors an injected fault", async () => {
+    await withTempDir(async (dir) => {
+      const p = selectPlatform();
+      const f = path.join(dir, "f");
+      await fs.writeFile(f, "x");
+      await p.removeFile(f, { label: "f" });
+      assert.equal(await exists(f), false);
+      await p.removeFile(f, { label: "f" });
+      await fs.writeFile(f, "x");
+      const faulty = selectPlatform({ faults: failAt("unlink:f") });
+      await assert.rejects(faulty.removeFile(f, { label: "f" }), (e: unknown) => errorCode(e) === "INJECTED_FAULT");
+      assert.equal(await exists(f), true);
+    });
+  });
+
   it("fsyncFile succeeds on an existing file and fails on a missing one", async () => {
     await withTempDir(async (dir) => {
       const p = selectPlatform();
