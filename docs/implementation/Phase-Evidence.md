@@ -4,6 +4,8 @@ Committed, human-readable record of each phase exit (Execution Prompt §13; Dire
 
 This file records **implementation evidence**. It is not acceptance evidence; acceptance reports are produced by the acceptance runner under `docs/implementation/acceptance/` (Phases 10–11) against `docs/baseline/Acceptance-Proof-Contract.md`.
 
+**Evidence preservation rule (Director, 2026-09-16, applied prospectively):** no raw evidence from any attempt (failed, partial, superseded, or successful) is deleted, overwritten, or replaced. From Phase 4 onward each capture attempt is stored under `evidence/phase-N/run-<UTC timestamp>/`, and `evidence/phase-N/INDEX.md` names the authoritative phase-exit run. Phase 3 predates the rule; see its section for what was and was not preserved.
+
 ---
 
 ## Phase 1 — S1 scaffold, platform layer, canonical primitives, test harness, static-inspection skeleton
@@ -89,6 +91,8 @@ This file records **implementation evidence**. It is not acceptance evidence; ac
 | Raw logs | `evidence/phase-3/environment.txt`, `typecheck.log`, `test.log`, `concurrency-stress.log` (ignored; delivered outside the repository) |
 
 ### Defect found and fixed during evidence capture
+
+**Evidence-preservation disclosure.** The first capture attempt's raw files were deleted and re-captured before the preservation rule was issued, so attempt 1 is not preserved on disk. Its result (102 pass / 1 fail in `concurrency.test.ts`) and root cause are recorded here and in `evidence/phase-3/INDEX.md`; the files now under `evidence/phase-3/` are attempt 2, the authoritative Phase 3 exit evidence.
 
 The first evidence-capture run failed the two-process race once: the losing writer reported `LOCK_MALFORMED` instead of `LOCK_HELD`. Cause: `createExclusive` opened the lock with `wx` and then wrote its contents, so a competitor that hit `EEXIST` could read the lock while it was still empty or partially written (a torn read). Fix: exclusive creation is now content-atomic. The bytes are written and fsynced to a same-directory temp file and then published by hard link (`link()` fails atomically with `EEXIST`), so any lock file that exists is complete. The full suite and the 20-run stress loop recorded above were executed after this fix. Hard links are supported on both required filesystems (NTFS, ext4); the Linux run in Phase 11 exercises the same path.
 
