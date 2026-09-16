@@ -67,12 +67,33 @@ export async function exists(path: string): Promise<boolean> {
   }
 }
 
+/**
+ * Every filesystem operation in the store's lifecycle (creating its
+ * directory, removing its files) runs inside the semantic error boundary, so
+ * a lifecycle failure is reported as a SemanticError and can never be
+ * mistaken for a deterministic continuity failure (Semantic Contract §9.10).
+ */
+async function semanticFs<T>(operation: string, path: string, fn: () => Promise<T>): Promise<T> {
+  try {
+    return await fn();
+  } catch (error) {
+    if (error instanceof SemanticError) throw error;
+    const errno = (error as { code?: unknown } | null)?.code;
+    throw new SemanticError({
+      code: "SEMANTIC_UNAVAILABLE",
+      message: `semantic memory lifecycle failure (${operation}) at ${path}: ${String((error as Error)?.message ?? error)}`,
+      details: { path, operation, ...(typeof errno === "string" ? { errno } : {}) },
+      cause: error,
+    });
+  }
+}
+
 /** Open (and if `create`, create) the store; verify or stamp the schema version. */
 export async function openSemantic(layout: Layout, options: { readonly create: boolean }): Promise<SemanticDb> {
   const path = semanticDbPath(layout);
   if (!(await exists(path))) {
     if (!options.create) throw new SemanticError({ code: "SEMANTIC_MISSING", message: `semantic memory absent at ${path}`, details: { path } });
-    await fs.mkdir(nodePath.dirname(path), { recursive: true });
+    await semanticFs("mkdir", nodePath.dirname(path), () => fs.mkdir(nodePath.dirname(path), { recursive: true }));
   }
   let db: DatabaseSync;
   try {
@@ -100,9 +121,9 @@ export async function openSemantic(layout: Layout, options: { readonly create: b
 export async function discardSemantic(layout: Layout): Promise<boolean> {
   const path = semanticDbPath(layout);
   const had = await exists(path);
-  await fs.rm(path, { force: true });
-  await fs.rm(`${path}-journal`, { force: true });
-  await fs.rm(`${path}-wal`, { force: true });
-  await fs.rm(`${path}-shm`, { force: true });
+  // Sidecars first, main store last: a lifecycle failure part-way leaves the store itself intact rather than half-removed.
+  for (const target of [`${path}-journal`, `${path}-wal`, `${path}-shm`, path]) {
+    await semanticFs("rm", target, () => fs.rm(target, { force: true }));
+  }
   return had;
 }

@@ -292,3 +292,39 @@ From this phase on, every full-suite run (including development iterations) is c
 - **Lock detection relies on SQLite's rollback-journal locking** with a zero busy timeout; a reader blocked by an exclusive writer is reported as `locked`. WAL mode is not used, so a concurrent long-lived exclusive transaction can make the store temporarily unavailable; this degrades retrieval only.
 - **Index freshness is the caller's responsibility**: the store is synchronized by explicit `index`/`rebuild`, and `staleIndex` tells the caller when the store lags the current state. Automatic post-publication indexing is deliberately absent so that no deterministic path depends on, or even touches, the store.
 - The Phase 1 win32 limits (no directory fsync, no per-file ACL restriction) apply to the runtime store as to other runtime files.
+
+---
+
+## Phase 8 — correction pass (independent audit findings)
+
+| Item | Value |
+|---|---|
+| Date (UTC) | 2026-09-16 |
+| Parent commit | `bfef66d` (Phase 8 checkpoint) |
+| Scope | Two bounded defects from an independent Phase 8 audit. No architecture, engineering decision, governing document, or Phase 9 work touched. |
+| Reproduction | Both findings independently reproduced before any implementation change: the new regression file failed 7/7 against `bfef66d` (`evidence/phase-8/correction-*/repro.log`). |
+| Verification after correction | targeted regression 7/7; `npm run typecheck` exit 0; full suite **188 pass, 0 fail, 0 skipped**; explicit H-series/semantic-isolation re-run 20/20 |
+| Evidence runs | `run-20260916T204443Z` (failed attempt after the first fix; preserved), **`run-20260916T204725Z` (authoritative after correction)**; the original Phase 8 exit run `run-20260916T193805Z` is preserved unchanged. See `evidence/phase-8/INDEX.md`. |
+
+### Finding 1 — semantic lifecycle failures could escape the semantic error boundary
+
+- **Reproduced:** a directory occupying `memory.sqlite-journal` made `rebuild` throw `SystemError [ERR_FS_EISDIR]`; a file occupying `.treepo/runtime` made `index` throw `Error: EEXIST` from `mkdir`; on Windows, rebuilding while another connection held the store open surfaced a generic error. None was a `SemanticError`.
+- **Root cause:** `openSemantic` (`fs.mkdir`) and `discardSemantic` (`fs.rm`) in `src/semantic/store.ts` performed filesystem lifecycle operations outside the SQLite error classification wrapper.
+- **Correction:** a `semanticFs` boundary wraps every lifecycle filesystem operation in the store, reporting `SemanticError` (`SEMANTIC_UNAVAILABLE`, with operation and errno in details). Discard now removes sidecar files before the main store, so a part-way failure leaves the store intact rather than half-removed. Deterministic behavior is unchanged: continuity validation, orientation, and publication were asserted unaffected in every regression case.
+- **Regression tests:** `test/integration/semantic-correction.test.ts` `#lifecycle-discard-failure`, `#lifecycle-parent-failure`, `#lifecycle-open-handle` (the last accepts success or a `SemanticError`, never a generic error, because the open-handle behavior is platform-dependent).
+
+### Finding 2 — authorization-like semantic results were powerless but their conflict was not surfaced
+
+- **Reproduced:** a planted `authz` document claiming approval ranked first with `relation: "not-applicable"` and `conflict: null`, while activation still failed with `AUTHORIZATION_MISSING`.
+- **Root cause:** `querySemantic` in `src/semantic/index.ts` related only `state` candidates to the lineage; authorization records were never compared against the anchored authorization set, and no authorization-like-language check existed.
+- **Correction:** the query loads the anchored authorization set independently of the index (through the existing core read API) and relates every `authz` candidate to it: `anchored-eligible` (no conflict), `anchored-ineligible` (revoked, expired, not yet issued, or a revocation record, with the reason stated), or `not-anchored` (planted, stale, or removed) with an explicit conflict note. Non-authoritative sources whose text reads like an approval are flagged `authorityClaim: true` with a conflict note stating they confer nothing; the bare noun "authorization" that legitimate ids carry is deliberately not matched, and on-lineage state objects are exempt. Ranking and retrieval are unchanged (the planted record still ranks first; the difference is the metadata). Conflict metadata is advisory only: the regression proves a poisoned index claiming a real grant was revoked does not affect deterministic authority in either direction.
+- **Regression tests:** `#planted-approval-conflict`, `#revoked-grant-conflict`, `#authorization-like-language`, `#conflict-is-advisory`.
+- **Original test updated:** `semantic.test.ts#retrieval` asserted the pre-correction `not-applicable` relation for an authorization record; it now asserts `anchored-eligible` with no conflict. The original Phase 8 exit run did not test conflict surfacing for authorization records; that coverage exists only from this correction pass.
+
+### Files changed
+
+`src/semantic/store.ts`, `src/semantic/index.ts` (implementation); `test/integration/semantic-correction.test.ts` (new); `test/integration/semantic.test.ts` (one assertion updated); this file and the ledger.
+
+### Resulting Phase 8 status
+
+Complete with corrections; all previously accepted Phase 8 behavior remains green (deletion, corruption, locking, rebuild, fresh-agent continuation with the store unavailable, no mutation of authoritative truth, static isolation, ED-13 lexical-only retrieval, no network).

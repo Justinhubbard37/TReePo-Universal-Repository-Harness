@@ -7,6 +7,8 @@
 // candidate carries its relation to the current lineage, so a stale or
 // conflicting result is visible and can never be mistaken for truth.
 
+import { evaluateAuthorization, loadAnchoredAuthz, type AuthzRecord } from "../core/authz/index.ts";
+import { isTreepoError } from "../core/errors.ts";
 import type { Layout } from "../core/state/layout.ts";
 import type { NextAction } from "../core/state/schema.ts";
 import { requireValidState, validateAuthoritativeState } from "../core/state/validate.ts";
@@ -80,7 +82,14 @@ export async function rebuildSemantic(layout: Layout): Promise<IndexResult & { r
   return { ...result, discarded };
 }
 
-export type LineageRelation = "current" | "on-lineage" | "not-on-lineage" | "not-applicable";
+/**
+ * How a candidate relates to deterministic truth:
+ *   state records → the current lineage (current / on-lineage / not-on-lineage);
+ *   authorization records → the anchored authorization set and its eligibility
+ *   (anchored-eligible / anchored-ineligible / not-anchored);
+ *   other sources → not-applicable.
+ */
+export type LineageRelation = "current" | "on-lineage" | "not-on-lineage" | "anchored-eligible" | "anchored-ineligible" | "not-anchored" | "not-applicable";
 
 export interface SemanticCandidate {
   readonly ref: string;
@@ -90,7 +99,33 @@ export interface SemanticCandidate {
   readonly snippet: string;
   readonly rank: number;
   readonly relation: LineageRelation;
+  /** True when the candidate is, or reads like, an assertion of authorization. Advisory only. */
+  readonly authorityClaim: boolean;
+  /** Explicit contradiction with deterministic truth, or null. Advisory metadata: it grants and denies nothing. */
   readonly conflict: string | null;
+}
+
+/** Authorization-like language (verbs of approval/authorization/grant/permission), deliberately not the bare noun "authorization" that legitimate ids carry. */
+const AUTHORITY_LANGUAGE = /\b(approv(?:e|ed|es|al)|authoriz(?:e|ed|es)|grant(?:ed|s)?|permit(?:ted|s)?|permission)\b/i;
+
+const NO_AUTHORITY = "it confers no authority; only an eligible authorization record anchored by the current authoritative state does";
+
+function relateAuthz(ref: string, anchored: readonly AuthzRecord[] | null, currentSeq: number): { relation: LineageRelation; conflict: string } | { relation: LineageRelation; conflict: null } {
+  if (anchored === null) return { relation: "not-applicable", conflict: `the anchored authorization set could not be established; this record's authority is unknown and ${NO_AUTHORITY}` };
+  const grantId = ref.slice("authz:".length);
+  const record = anchored.find((r) => r.grantId === grantId);
+  if (record === undefined) {
+    return { relation: "not-anchored", conflict: `asserts authorization that the current authoritative state does not anchor (planted, stale, or removed); deterministic authority wins and ${NO_AUTHORITY}` };
+  }
+  if (record.revokes !== null) {
+    return { relation: "anchored-ineligible", conflict: `this is a revocation record (revokes ${record.revokes}); ${NO_AUTHORITY}` };
+  }
+  const capability = record.scope.capabilities[0] ?? "";
+  const decision = evaluateAuthorization(anchored, currentSeq, { adapterId: record.scope.adapterId, capability });
+  const considered = decision.considered.find((c) => c.grantId === grantId);
+  if (considered !== undefined && considered.eligible) return { relation: "anchored-eligible", conflict: null };
+  const reason = considered?.reason ?? "out-of-scope";
+  return { relation: "anchored-ineligible", conflict: `deterministic authority reports this grant as ${reason} at seq ${currentSeq}; ${NO_AUTHORITY}` };
 }
 
 export interface SemanticQueryResult {
@@ -115,10 +150,18 @@ export async function querySemantic(layout: Layout, text: string, limit = 10): P
   const validation = await validateAuthoritativeState(layout);
   let authoritative: SemanticQueryResult["authoritative"] = null;
   let chainIds = new Set<string>();
+  // The deterministic authority state is loaded independently of the index so every authorization-like candidate can be compared against it.
+  let anchored: readonly AuthzRecord[] | null = null;
   if (validation.ok) {
     const state = await requireValidState(layout);
     authoritative = { stateId: state.current.id, seq: state.current.object.seq, nextAction: state.current.object.core.nextAction };
     chainIds = new Set(state.chain.map((s) => s.id));
+    try {
+      anchored = await loadAnchoredAuthz(layout, state);
+    } catch (error) {
+      if (!isTreepoError(error)) throw error;
+      anchored = null;
+    }
   }
   const handle = await openSemantic(layout, { create: false });
   try {
@@ -128,11 +171,12 @@ export async function querySemantic(layout: Layout, text: string, limit = 10): P
     if (tokens.length === 0) return { mechanical: true, note: CANDIDATE_NOTE, query: text, tokens, authoritative, validation: { ok: validation.ok, code: validation.ok ? null : validation.code }, staleIndex, candidates: [] };
     const match = tokens.map((t) => `"${t.replace(/"/g, "")}"`).join(" OR ");
     const rows = db
-      .prepare("SELECT ref, source, seq, title, snippet(documents_fts, 4, '[', ']', '…', 14) AS snippet, bm25(documents_fts) AS rank FROM documents_fts WHERE documents_fts MATCH ? ORDER BY rank, ref LIMIT ?")
-      .all(match, Math.max(1, Math.min(limit, 100))) as { ref: string; source: SemanticSource; seq: number | null; title: string; snippet: string; rank: number }[];
+      .prepare("SELECT ref, source, seq, title, body, snippet(documents_fts, 4, '[', ']', '…', 14) AS snippet, bm25(documents_fts) AS rank FROM documents_fts WHERE documents_fts MATCH ? ORDER BY rank, ref LIMIT ?")
+      .all(match, Math.max(1, Math.min(limit, 100))) as { ref: string; source: SemanticSource; seq: number | null; title: string; body: string; snippet: string; rank: number }[];
     const candidates: SemanticCandidate[] = rows.map((r) => {
       let relation: LineageRelation = "not-applicable";
       let conflict: string | null = null;
+      let authorityClaim = false;
       if (r.source === "state") {
         const id = r.ref.slice("state:".length);
         if (authoritative === null) {
@@ -144,8 +188,18 @@ export async function querySemantic(layout: Layout, text: string, limit = 10): P
           relation = "not-on-lineage";
           conflict = "refers to a state object that is not on the current authoritative lineage (stale or foreign index entry); deterministic state wins";
         }
+      } else if (r.source === "authz") {
+        authorityClaim = true;
+        const related = relateAuthz(r.ref, anchored, authoritative?.seq ?? 0);
+        relation = related.relation;
+        conflict = related.conflict;
       }
-      return { ref: r.ref, source: r.source, seq: r.seq, title: r.title, snippet: r.snippet, rank: r.rank, relation, conflict };
+      // Any non-authoritative source that reads like an approval is contradicted by deterministic authority by construction.
+      if (relation !== "current" && relation !== "on-lineage" && r.source !== "authz" && AUTHORITY_LANGUAGE.test(`${r.title}\n${r.body}`)) {
+        authorityClaim = true;
+        conflict = conflict ?? `contains authorization-like language but is not an anchored eligible authorization record; deterministic authority wins and ${NO_AUTHORITY}`;
+      }
+      return { ref: r.ref, source: r.source, seq: r.seq, title: r.title, snippet: r.snippet, rank: r.rank, relation, authorityClaim, conflict };
     });
     return { mechanical: true, note: CANDIDATE_NOTE, query: text, tokens, authoritative, validation: { ok: validation.ok, code: validation.ok ? null : validation.code }, staleIndex, candidates };
   } catch (error) {

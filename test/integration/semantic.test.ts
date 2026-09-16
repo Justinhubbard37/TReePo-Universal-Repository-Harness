@@ -48,7 +48,10 @@ describe("semantic memory (subordinate, local SQLite)", () => {
       assert.match(q1.candidates[0]!.snippet, /\[parser\]|\[tests\]|\[nested\]/);
       const q2 = await semantic.query(project, "Dana design review");
       assert.equal(q2.candidates[0]!.source, "authz");
-      assert.equal(q2.candidates[0]!.relation, "not-applicable");
+      // Correction pass: authorization records are now related to the anchored authorization set (was "not-applicable").
+      assert.equal(q2.candidates[0]!.relation, "anchored-eligible");
+      assert.equal(q2.candidates[0]!.conflict, null);
+      assert.equal(q2.candidates[0]!.authorityClaim, true);
       const q3 = await semantic.query(project, "unicode escapes");
       assert.equal(q3.candidates[0]!.source, "git");
       assert.match(q3.candidates[0]!.ref, /^git:[0-9a-f]{40}$/);

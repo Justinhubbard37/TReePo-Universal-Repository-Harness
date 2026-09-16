@@ -1,6 +1,6 @@
 # Traceability Ledger — TReePo v1
 
-**Status:** Created at the Initial Execution Gate; section 10 added 2026-09-15 for the Director-requested ED-18 correction. Phase 1–8 exits recorded 2026-09-16 (advanced rows cite `Phase-Evidence.md`). Maintained continuously during implementation.
+**Status:** Created at the Initial Execution Gate; section 10 added 2026-09-15 for the Director-requested ED-18 correction. Phase 1–8 exits recorded 2026-09-16; Phase 8 correction pass (two audit findings) recorded 2026-09-16 (advanced rows cite `Phase-Evidence.md`). Maintained continuously during implementation.
 
 **Authority note:** Derived IDs (`TRP-*`) are navigation and audit aids only. They do not replace the governing requirement, are not independent authority, do not change requirement meaning, and do not permit reinterpretation. The **Governing source** column is normative; the **Requirement** column is a pointer paraphrase and yields to the source text on any difference.
 
@@ -76,7 +76,7 @@
 | TRP-PC-13 | PC "Adapter foundation" bullets | Workflow + repo adapter interfaces; Git; compatibility validation; authority-safe activation; Router; one adapter | S4, S6, S7 | F-series | `Phase-Evidence.md` §Phase 5: adapter framework, Git adapter, Router, activation complete; one workflow adapter pending Phase 6; `Phase-Evidence.md` §Phase 6: one workflow adapter shipped; Router, activation, Git adapter complete | IMPLEMENTED |
 | TRP-PC-14 | PC "Semantic v1" bullets | Local SQLite; retrieval; subordinate; rebuildable | S10 | H-series | `Phase-Evidence.md` §Phase 8: local SQLite; retrieval/recall/navigation; subordinate; rebuildable | IMPLEMENTED |
 | TRP-PC-15 | PC "What remains deterministic" list incl. "semantic may affect authoritative state: it is not" | Enumerated deterministic facts | S2–S6 | mapped per item in code comments to this ID | — | PLANNED |
-| TRP-PC-16 | PC "Failure philosophy" | Fail closed or escalate; semantic failures degrade retrieval only | error taxonomy distinguishes `ContinuityError` vs `SemanticError` | H-series; TRP-SEM-AC10 | `Phase-Evidence.md` §Phase 1: ContinuityError/PlatformError/UsageError taxonomy; semantic error class pending (Phase 8); `Phase-Evidence.md` §Phase 8: `SemanticError` (category semantic, CLI exit 3) vs `ContinuityError`; `#error-taxonomy` | IMPLEMENTED |
+| TRP-PC-16 | PC "Failure philosophy" | Fail closed or escalate; semantic failures degrade retrieval only | error taxonomy distinguishes `ContinuityError` vs `SemanticError` | H-series; TRP-SEM-AC10 | `Phase-Evidence.md` §Phase 1: ContinuityError/PlatformError/UsageError taxonomy; semantic error class pending (Phase 8); `Phase-Evidence.md` §Phase 8: `SemanticError` (category semantic, CLI exit 3) vs `ContinuityError`; `#error-taxonomy`; `Phase-Evidence.md` §Phase 8 correction pass: audit finding 1 corrected: semantic lifecycle failures cannot masquerade as continuity failures | IMPLEMENTED |
 | TRP-PC-17 | PC "Independence requirements" | No required PRD workflow, `Director` role, AI vendor, hosted service, or chat history | S12 inspection | `test/static/core-boundary.test.ts` | `Phase-Evidence.md` §Phase 1: no-`Director`-token scan passes on Phase 1 core | IN-PROGRESS |
 
 ## 5. Architecture Contract
@@ -122,8 +122,8 @@
 |---|---|---|---|---|---|---|
 | TRP-SEM-01 | SEM "Governing status" | Local SQLite semantic memory exists in v1 | `src/semantic/store.ts` via `node:sqlite` | AC-H1 | `Phase-Evidence.md` §Phase 8: `src/semantic/store.ts` (`node:sqlite`, FTS5); `#is-sqlite` | IMPLEMENTED |
 | TRP-SEM-02 | SEM §1, §2 | Permitted purposes and responsibilities | index/query/associate/rank | AC-H2 | `Phase-Evidence.md` §Phase 8: index/query/status; `#retrieval` | IMPLEMENTED |
-| TRP-SEM-03 | SEM §3 (eleven "may not" items) | Forbidden responsibilities | semantic module has no import of core write APIs | static inspection; AC-H4, H6, H7, H9 | `Phase-Evidence.md` §Phase 8: static isolation test + `#no-authority`, `#stale-conflict`, `#no-current-selection`, `#query-no-mutation` | IMPLEMENTED |
-| TRP-SEM-04 | SEM §4 | Deterministic state wins; conflict surfaced | `treepo semantic query` annotates conflicts with current state | AC-H6 | `Phase-Evidence.md` §Phase 8: query annotates the deterministic snapshot and per-candidate conflict; `#stale-conflict` | IMPLEMENTED |
+| TRP-SEM-03 | SEM §3 (eleven "may not" items) | Forbidden responsibilities | semantic module has no import of core write APIs | static inspection; AC-H4, H6, H7, H9 | `Phase-Evidence.md` §Phase 8: static isolation test + `#no-authority`, `#stale-conflict`, `#no-current-selection`, `#query-no-mutation`; `Phase-Evidence.md` §Phase 8 correction pass: audit finding 2: conflict reporting is advisory metadata only (`#conflict-is-advisory`) | IMPLEMENTED |
+| TRP-SEM-04 | SEM §4 | Deterministic state wins; conflict surfaced | `treepo semantic query` annotates conflicts with current state | AC-H6 | `Phase-Evidence.md` §Phase 8: query annotates the deterministic snapshot and per-candidate conflict; `#stale-conflict`; `Phase-Evidence.md` §Phase 8 correction pass: audit finding 2 corrected: authorization-like candidates compared with the anchored authorization set; contradictions surfaced (`#planted-approval-conflict`, `#revoked-grant-conflict`, `#authorization-like-language`) | IMPLEMENTED |
 | TRP-SEM-05 | SEM §5 | Core works with DB missing/empty/stale/corrupt/locked/deleted/rebuilding | core never opens the DB | AC-H3, H4, H8 | `Phase-Evidence.md` §Phase 8: `#delete`, `#corrupt` (incl. truncation), `#locked`, rebuild in progress covered by discard+index | IMPLEMENTED |
 | TRP-SEM-06 | SEM §6 | Rebuildable/discardable; rebuild doesn't mutate deterministic state | `treepo semantic rebuild` | AC-H5 | `Phase-Evidence.md` §Phase 8: `rebuildSemantic`; `#rebuild-bytes`, `#corrupt` | IMPLEMENTED |
 | TRP-SEM-07 | SEM §7 | Indexing is not an authority transition | no journal/tx used by semantic | AC-H9 | `Phase-Evidence.md` §Phase 8: indexing uses no lock/journal/tx; `#query-no-mutation` | IMPLEMENTED |
@@ -133,13 +133,13 @@
 | TRP-SEM-AC1 | SEM §9.1; AC H.3 | Deleting DB doesn't break validation | — | `test/integration/semantic-isolation.test.ts#delete` | `Phase-Evidence.md` §Phase 8: `semantic-isolation.test.ts#delete` | IMPLEMENTED |
 | TRP-SEM-AC2 | SEM §9.2; AC H.4 | Corrupting DB doesn't redirect continuation | — | `#corrupt` | `Phase-Evidence.md` §Phase 8: `#corrupt` | IMPLEMENTED |
 | TRP-SEM-AC3 | SEM §9.3; AC H.5 | Rebuild leaves authoritative bytes/identity unchanged | — | `#rebuild-bytes` | `Phase-Evidence.md` §Phase 8: `semantic.test.ts#rebuild-bytes` | IMPLEMENTED |
-| TRP-SEM-AC4 | SEM §9.4; AC H.6 | Stale conflicting result cannot override | — | `#stale-conflict` | `Phase-Evidence.md` §Phase 8: `semantic.test.ts#stale-conflict` | IMPLEMENTED |
-| TRP-SEM-AC5 | SEM §9.5; AC H.7 | High-confidence result cannot create approval | — | `#no-authority` | `Phase-Evidence.md` §Phase 8: `semantic-isolation.test.ts#no-authority` | IMPLEMENTED |
+| TRP-SEM-AC4 | SEM §9.4; AC H.6 | Stale conflicting result cannot override | — | `#stale-conflict` | `Phase-Evidence.md` §Phase 8: `semantic.test.ts#stale-conflict`; `Phase-Evidence.md` §Phase 8 correction pass: audit finding 2: revoked/stale grant candidates flagged anchored-ineligible with reason | IMPLEMENTED |
+| TRP-SEM-AC5 | SEM §9.5; AC H.7 | High-confidence result cannot create approval | — | `#no-authority` | `Phase-Evidence.md` §Phase 8: `semantic-isolation.test.ts#no-authority`; `Phase-Evidence.md` §Phase 8 correction pass: audit finding 2: planted approval flagged not-anchored with explicit conflict while still conferring nothing (`#conflict-is-advisory`) | IMPLEMENTED |
 | TRP-SEM-AC6 | SEM §9.6 | Query useful without mutating state | — | `#query-no-mutation` | `Phase-Evidence.md` §Phase 8: `semantic.test.ts#query-no-mutation` | IMPLEMENTED |
 | TRP-SEM-AC7 | SEM §9.7 | Cannot select competing current state | — | `#no-current-selection` | `Phase-Evidence.md` §Phase 8: `semantic.test.ts#no-current-selection` | IMPLEMENTED |
 | TRP-SEM-AC8 | SEM §9.8; AC H.8 | Fresh-agent continuation with semantic unavailable | — | C-series with DB locked/absent | `Phase-Evidence.md` §Phase 6: fresh-agent proof runs with no semantic subsystem present (not yet built); explicit disabled/unavailable case pending Phase 8; `Phase-Evidence.md` §Phase 8: `semantic-isolation.test.ts#fresh-agent-unavailable`, `#locked` (Agent B child process) | IMPLEMENTED |
 | TRP-SEM-AC9 | SEM §9.9; AC H.1 | Local SQLite as required | — | `#is-sqlite` | `Phase-Evidence.md` §Phase 8: `semantic.test.ts#is-sqlite` | IMPLEMENTED |
-| TRP-SEM-AC10 | SEM §9.10 | Semantic errors distinguishable from continuity failures | error taxonomy | `#error-taxonomy` | `Phase-Evidence.md` §Phase 8: `semantic-isolation.test.ts#error-taxonomy` | IMPLEMENTED |
+| TRP-SEM-AC10 | SEM §9.10 | Semantic errors distinguishable from continuity failures | error taxonomy | `#error-taxonomy` | `Phase-Evidence.md` §Phase 8: `semantic-isolation.test.ts#error-taxonomy`; `Phase-Evidence.md` §Phase 8 correction pass: audit finding 1 corrected: lifecycle filesystem failures now classified as SemanticError (`semantic-correction.test.ts#lifecycle-*`) | IMPLEMENTED |
 
 ## 8. Acceptance / Proof Contract
 
@@ -250,8 +250,8 @@
 | TRP-AC-H3 | AC H.3 | Deletion doesn't break continuity | — | TRP-SEM-AC1 | `Phase-Evidence.md` §Phase 8: `#delete` | IMPLEMENTED |
 | TRP-AC-H4 | AC H.4 | Corruption cannot redirect | — | TRP-SEM-AC2 | `Phase-Evidence.md` §Phase 8: `#corrupt` | IMPLEMENTED |
 | TRP-AC-H5 | AC H.5 | Rebuild leaves state unchanged | — | TRP-SEM-AC3 | `Phase-Evidence.md` §Phase 8: `#rebuild-bytes` | IMPLEMENTED |
-| TRP-AC-H6 | AC H.6 | Stale/high-confidence cannot override | — | TRP-SEM-AC4 | `Phase-Evidence.md` §Phase 8: `#stale-conflict` | IMPLEMENTED |
-| TRP-AC-H7 | AC H.7 | Inference cannot create authority | — | TRP-SEM-AC5 | `Phase-Evidence.md` §Phase 8: `#no-authority` | IMPLEMENTED |
+| TRP-AC-H6 | AC H.6 | Stale/high-confidence cannot override | — | TRP-SEM-AC4 | `Phase-Evidence.md` §Phase 8: `#stale-conflict`; `Phase-Evidence.md` §Phase 8 correction pass: audit finding 2 corrected: conflict surfaced, deterministic authority wins | IMPLEMENTED |
+| TRP-AC-H7 | AC H.7 | Inference cannot create authority | — | TRP-SEM-AC5 | `Phase-Evidence.md` §Phase 8: `#no-authority`; `Phase-Evidence.md` §Phase 8 correction pass: audit finding 2 corrected: conflict surfaced; no authority created | IMPLEMENTED |
 | TRP-AC-H8 | AC H.8 | Fresh-agent continuation with semantic unavailable | — | TRP-SEM-AC8 | `Phase-Evidence.md` §Phase 8: `#fresh-agent-unavailable`, `#locked` | IMPLEMENTED |
 | TRP-AC-H9 | AC H.9 | Indexing/query doesn't mutate truth | — | TRP-SEM-AC6/AC7 | `Phase-Evidence.md` §Phase 8: `#query-no-mutation` | IMPLEMENTED |
 
