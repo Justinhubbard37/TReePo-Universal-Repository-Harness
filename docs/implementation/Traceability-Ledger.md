@@ -1,0 +1,365 @@
+# Traceability Ledger — TReePo v1
+
+**Status:** Created at the Initial Execution Gate; section 10 added 2026-09-15 for the Director-requested ED-18 correction. All implementation rows `PLANNED`. Maintained continuously during implementation.
+
+**Authority note:** Derived IDs (`TRP-*`) are navigation and audit aids only. They do not replace the governing requirement, are not independent authority, do not change requirement meaning, and do not permit reinterpretation. The **Governing source** column is normative; the **Requirement** column is a pointer paraphrase and yields to the source text on any difference.
+
+**Columns:** Derived ID | Governing source | Requirement (pointer) | Implementation (planned module) | Test (planned) | Evidence | Status
+
+**Status values:** `PLANNED` → `IN-PROGRESS` → `IMPLEMENTED` (code exists, tests green locally) → `PROVEN-WIN` / `PROVEN-WSL` (acceptance evidence recorded per environment) → `ACCEPTED` (Director). `BLOCKED` and `ESCALATED` are also used.
+
+**Source abbreviations:** DEF = `docs/baseline/TReePo-Definition-Baseline.md`; PC = `docs/baseline/TReePo-v1-Product-Contract.md`; ARCH = `docs/baseline/TReePo-v1-Architecture-Contract.md`; ADP = `docs/baseline/Adapter-Contract.md`; SEM = `docs/baseline/Semantic-Memory-SQLite-v1-Contract.md`; AC = `docs/baseline/Acceptance-Proof-Contract.md`; BLD = `docs/governance/Authoritative-Decision-Extracts.md`; HO = `handoff/Fable-Handoff-Requirements.md`; EP = `handoff/Fable-Execution-Prompt.md`; AG = `AGENTS.md`. `ED-*` refers to the decision register in `Fable-Implementation-Plan.md` §4.
+
+---
+
+## 1. Locked decisions (BLD)
+
+| ID | Governing source | Requirement (pointer) | Implementation | Test | Evidence | Status |
+|---|---|---|---|---|---|---|
+| TRP-BLD-001A | BLD §BLD-001A; DEF/PC/ARCH/ADP "LOCKED — BLD-001A" | Router in v1; AI may interpret and propose; deterministic verification of installation, applicability, compatibility, prerequisites before activation; selection ≠ install ≠ authorization | `src/adapters/router.ts`, `src/adapters/registry.ts` | `test/integration/router.test.ts` | — | PLANNED |
+| TRP-BLD-001B | BLD §BLD-001B; DEF/PC/ARCH "LOCKED — BLD-001B" | ROUTINE_DELTA fast lane for eligible same-session routine transitions; full assurance mandatory at boundaries and universal fallback; efficiency only | `src/hydration/*` | `test/integration/hydration.test.ts` | — | PLANNED |
+| TRP-BLD-002 | BLD §BLD-002; DEF/PC/ARCH/ADP "LOCKED — BLD-002" | Exactly one minimal first-party general-purpose continuity workflow adapter; GCH deferred | `src/adapters/workflow/continuity/*` (only workflow adapter directory) | `test/static/one-workflow-adapter.test.ts`; C-series | — | PLANNED |
+| TRP-BLD-003 | BLD §BLD-003; DEF/PC/ARCH/ADP "LOCKED — BLD-003" | Consequence/authority-based activation; auto only non-authoritative, non-consequential, in-scope; explicit authorization for consequential authority; states distinct | `src/adapters/activation.ts`, `src/core/authz.ts` | `test/integration/activation.test.ts` | — | PLANNED |
+| TRP-BLD-004 | BLD §BLD-004; DEF/PC/ARCH "LOCKED — BLD-004" | Repository-attached authoritative state; complete durable state transportable via deterministic verifiable mechanism; ephemeral excluded; semantic subordinate | ED-07 split; `src/transport/*` | `test/integration/transport.test.ts` | — | PLANNED |
+| TRP-BLD-005 | BLD §BLD-005; DEF/PC/ARCH/ADP/SEM/AC "LOCKED — BLD-005" | Support and acceptance on Windows 11 NTFS + Git and Ubuntu WSL2 Linux-fs + Git; same guarantees; platform isolation; no Docker requirement | `src/platform/*`; acceptance runner | full suite in both environments | — | PLANNED |
+| TRP-BLD-SPB | BLD "Semantic Processing Execution Boundary"; EP §7 | No silent routing of repository content to an additional external provider; local models local; cloud via selected provider only | ED-13: no network calls in TReePo v1 | `test/static/no-network.test.ts` (scan for `fetch`, `http`, `net` imports) | — | PLANNED |
+
+## 2. Protected invariants (DEF "Protected invariants")
+
+| ID | Governing source | Requirement (pointer) | Implementation | Test | Evidence | Status |
+|---|---|---|---|---|---|---|
+| TRP-INV-01 | DEF Protected invariants §1; AG §3 | Single authoritative continuity truth | `src/core/state/current.ts` (only `CURRENT` pointer) | B-series | — | PLANNED |
+| TRP-INV-02 | DEF §2; AG §3 | Immutable/verifiable lineage | `src/core/state/lineage.ts` | `test/unit/lineage.test.ts`; AC-B3 | — | PLANNED |
+| TRP-INV-03 | DEF §3 | Machine-verifiable provenance and integrity | `src/core/state/validate.ts`, `src/core/canon.ts` | `test/unit/validate.test.ts` | — | PLANNED |
+| TRP-INV-04 | DEF §4; ARCH §4, §8 | Mechanical PASS does not manufacture semantic authority | `src/core/authz.ts` (presence/structure only) | AC-E4 | — | PLANNED |
+| TRP-INV-05 | DEF §5; ARCH §5 | Transaction publication fail-safe and validated | `src/core/tx/*` | D-series | — | PLANNED |
+| TRP-INV-06 | DEF §6; ARCH §6 | Stale, divergent, concurrent, ambiguous, corrupt mutation fails closed | `src/core/tx/preconditions.ts`, `src/core/lock.ts`; ED-18 partition for working-copy staleness | AC-D1..D4, D11; TRP-RFP-02..06 | — | PLANNED |
+| TRP-INV-07 | DEF §7; ARCH §6 | Exact retry idempotent | `src/core/tx/idempotency.ts` (request digest in journal + object) | AC-D9, D10 | — | PLANNED |
+| TRP-INV-08 | DEF §8; ARCH §2 | Exact continuation position survives pause/handoff | `src/core/continuation.ts` | C-series | — | PLANNED |
+| TRP-INV-09 | DEF §9; ARCH §2, §16 | Core remains workflow-agnostic | `src/core/**` contains no workflow vocabulary | `test/static/core-boundary.test.ts` | — | PLANNED |
+| TRP-INV-10 | DEF §10; ARCH §16 | AI/semantic interpretation cannot bypass deterministic prerequisites | Router/activation layering (ADP §4) | AC-F9, AC-E5 | — | PLANNED |
+| TRP-INV-11 | DEF §11; SEM §6 | Semantic memory non-authoritative and rebuildable | `src/semantic/*` read-only w.r.t. core | H-series | — | PLANNED |
+| TRP-INV-12 | DEF §12; AC K | Claims remain evidence-bounded | acceptance report generator emits only measured facts | review of reports | — | PLANNED |
+| TRP-INV-13 | DEF §13; ARCH §14 | Fast lane uses hydration credentials as capability gates only; boundaries invalidate; full assurance required | `src/hydration/eligibility.ts` | I-series | — | PLANNED |
+
+## 3. Definition Baseline — other locked/established items
+
+| ID | Governing source | Requirement (pointer) | Implementation | Test | Evidence | Status |
+|---|---|---|---|---|---|---|
+| TRP-DEF-01 | DEF "Product identity" | Name TReePo; Universal Repository Harness | package name, CLI banner | n/a | — | PLANNED |
+| TRP-DEF-02 | DEF "Intended outcome" 1–7 | Fresh authorized agent can locate, validate, identify completed/next, understand authority, refuse invalid, continue only after authorization | `treepo orient` (S8) | AC-C7..C13 | — | PLANNED |
+| TRP-DEF-03 | DEF "Core versus adapters" LOCKED | Core independent of workflow, product, role name, PRD process, provider | S12 inspection | `test/static/core-boundary.test.ts` | — | PLANNED |
+| TRP-DEF-04 | DEF "Initial product form"; PC "Operating model" | Local-first CLI + repository harness; no hosted control plane; no vendor requirement | no network code; no service dependency | `test/static/no-network.test.ts` | — | PLANNED |
+| TRP-DEF-05 | DEF "Deterministic authority philosophy" | Chat history, model memory, semantic retrieval, timestamps, retry receipts, journals, session leases are not competing truth | current-state resolution reads only `CURRENT` + objects | AC-B1; H-series; I-series | — | PLANNED |
+| TRP-DEF-06 | DEF "Deterministic authority philosophy" | Proposal, approval, acceptance, implementation authorization distinct | authz record kinds; core keeps them separable | AC-E2, E3 | — | PLANNED |
+| TRP-DEF-07 | DEF "LOCKED placement decision"; ADP §10 | Governed Cumulative Handoff outside v1 and outside core | absent by design | `test/static/one-workflow-adapter.test.ts` | — | PLANNED |
+| TRP-DEF-08 | DEF REJECTED list | No deterministic/guessable hydration secrets; non-secret identifiers not proof | `crypto.randomBytes(32)`; HMAC | AC-I3, I10 | — | PLANNED |
+| TRP-DEF-09 | DEF "Evidence / claim boundaries" | Prove in a supported Git repo with no pre-existing TReePo state before general claims | integration fixtures create fresh repos | all integration tests | — | PLANNED |
+| TRP-DEF-10 | DEF ESTABLISHED "bootstrap should discover mechanically knowable facts"; PC "Usability requirement" | Discover knowable facts; never infer human-only facts | `treepo preflight` / `init` intake draft | AC-A3 | — | PLANNED |
+
+## 4. Product Contract required outcomes and capabilities
+
+| ID | Governing source | Requirement (pointer) | Implementation | Test | Evidence | Status |
+|---|---|---|---|---|---|---|
+| TRP-PC-01 | PC outcome 1 | Initialize/adopt TReePo for existing repository | `treepo init` | AC-A1 | — | PLANNED |
+| TRP-PC-02 | PC outcome 2 | Establish one valid authoritative state | genesis object + `CURRENT` | AC-A4, A5 | — | PLANNED |
+| TRP-PC-03 | PC outcome 3 | Validate independently of AI opinion | `treepo validate` | B-series | — | PLANNED |
+| TRP-PC-04 | PC outcome 4 | Record durable checkpoint state | `treepo checkpoint` | AC-C3 | — | PLANNED |
+| TRP-PC-05 | PC outcome 5 | Pause with exact unresolved next action | `treepo pause` | AC-C4, B6 | — | PLANNED |
+| TRP-PC-06 | PC outcome 6 | Fresh session recovers correct position without prior conversation | `treepo orient` | AC-C7..C10 | — | PLANNED |
+| TRP-PC-07 | PC outcome 7 | Prevent continuation from stale/conflicting/corrupt/unauthorized state | validation + preconditions | D-series, AC-E7 | — | PLANNED |
+| TRP-PC-08 | PC outcome 8 | Survive interrupted publication via recovery or exact rollback | `treepo recover`, auto-recovery on start | AC-D6, D7 | — | PLANNED |
+| TRP-PC-09 | PC outcome 9 | Retrieve contextual material via local semantic memory | `treepo semantic query` | AC-H1, H2 | — | PLANNED |
+| TRP-PC-10 | PC outcome 10 | Rebuild or lose semantic DB without losing continuity | `treepo semantic rebuild` | AC-H3..H5 | — | PLANNED |
+| TRP-PC-11 | PC outcome 11 | Install/update/uninstall without silent corruption | `init`, `doctor`, `uninstall` | G-series | — | PLANNED |
+| TRP-PC-12 | PC "Deterministic foundation" bullets | Full list of deterministic capabilities | S2, S3, S4, S8 | B, D, E, C series | — | PLANNED |
+| TRP-PC-13 | PC "Adapter foundation" bullets | Workflow + repo adapter interfaces; Git; compatibility validation; authority-safe activation; Router; one adapter | S4, S6, S7 | F-series | — | PLANNED |
+| TRP-PC-14 | PC "Semantic v1" bullets | Local SQLite; retrieval; subordinate; rebuildable | S10 | H-series | — | PLANNED |
+| TRP-PC-15 | PC "What remains deterministic" list incl. "semantic may affect authoritative state: it is not" | Enumerated deterministic facts | S2–S6 | mapped per item in code comments to this ID | — | PLANNED |
+| TRP-PC-16 | PC "Failure philosophy" | Fail closed or escalate; semantic failures degrade retrieval only | error taxonomy distinguishes `ContinuityError` vs `SemanticError` | H-series; TRP-SEM-AC10 | — | PLANNED |
+| TRP-PC-17 | PC "Independence requirements" | No required PRD workflow, `Director` role, AI vendor, hosted service, or chat history | S12 inspection | `test/static/core-boundary.test.ts` | — | PLANNED |
+
+## 5. Architecture Contract
+
+| ID | Governing source | Requirement (pointer) | Implementation | Test | Evidence | Status |
+|---|---|---|---|---|---|---|
+| TRP-ARCH-01 | ARCH §1 | Deterministic machinery establishes truth; probabilistic assists only | module boundaries (core vs semantic vs router) | static inspection | — | PLANNED |
+| TRP-ARCH-02 | ARCH §2 | Core mechanisms list; no workflow/provider semantics in core | `src/core/**` | static inspection; B/D/E | — | PLANNED |
+| TRP-ARCH-03 | ARCH §3 "Governing properties" | Exactly one current state mechanically identifiable; not by timestamp/name/model/similarity; predecessor relation; immutability; sufficiency; no silent discard | ED-08 object model; `CURRENT` | AC-B1..B4 | — | PLANNED |
+| TRP-ARCH-04 | ARCH §4 | Mechanical vs semantic/human truth distinguished; core validation mandatory regardless of adapter | validator API returns `mechanical` facts only; adapters cannot skip | AC-E4, E6 | — | PLANNED |
+| TRP-ARCH-05 | ARCH §5 items 1–9 | Transaction/recovery properties | ED-09 | AC-D5..D8, D11 | — | PLANNED |
+| TRP-ARCH-06 | ARCH §6 | Stale/divergence/concurrent/collision/retry rules; no distributed claim | ED-09/ED-10 | AC-D1..D4, D9, D10 | — | PLANNED |
+| TRP-ARCH-07 | ARCH §7 | Provenance sufficient to prove current, lineage, identity, transition, authority relied on, repo facts | object fields `transition`, `authzRefs`, `repoFacts` | AC-E1 | — | PLANNED |
+| TRP-ARCH-08 | ARCH §8 | Human authority external; structural verification only; roles separable | ED-16; current authoritative state anchors the complete active authorization set | AC-E2..E4; AC-E7; AC-F6/F7 | — | PLANNED |
+| TRP-ARCH-09 | ARCH §9 | Workflow vs repo adapter responsibilities | `src/adapters/workflow/*`, `src/adapters/repo/git/*` | AC-F1, F2 | — | PLANNED |
+| TRP-ARCH-10 | ARCH §10 | Router + activation (see BLD-001A/003) | S6 | F-series | — | PLANNED |
+| TRP-ARCH-11 | ARCH §11 steps 1–8 | Bootstrap sequence; confirmation ≠ authorization; authorization precedes governance-state creation | `treepo preflight`, `treepo init --authorize <grant>` | AC-A1..A6 | — | PLANNED |
+| TRP-ARCH-12 | ARCH §12 | Git facts mechanical; dirty/HEAD/branch/worktree changes bound to validation; ambiguity fails closed | S4; `repoFacts.workingCopy` bound into validation per ED-18; `.treepo/**` protected by integrity validation instead of the dirty fingerprint | AC-E5, F1; TRP-RFP-01..06 | — | PLANNED |
+| TRP-ARCH-13 | ARCH §13 | Semantic subsystem downstream/subordinate | S10 | H-series | — | PLANNED |
+| TRP-ARCH-14 | ARCH §14 | Capability-gate pattern: hydration first; bound; high-entropy ephemeral; rotates; boundaries invalidate; not authority | S9 | I-series | — | PLANNED |
+| TRP-ARCH-15 | ARCH §15 | Separation matrix ownership | module layout | static inspection | — | PLANNED |
+| TRP-ARCH-16 | ARCH §16 | Forbidden shortcuts (nine items) | design review checklist (Plan §10) | static inspection + H/I/F negative tests | — | PLANNED |
+| TRP-ARCH-17 | ARCH §17 | Platform isolation (see BLD-005) | ED-17 | M-series | — | PLANNED |
+| TRP-ARCH-18 | ARCH §18 | One workflow adapter (see BLD-002) | S7 | static count test | — | PLANNED |
+
+## 6. Adapter Contract
+
+| ID | Governing source | Requirement (pointer) | Implementation | Test | Evidence | Status |
+|---|---|---|---|---|---|---|
+| TRP-ADP-01 | ADP §1, §10 "ESTABLISHED minimum" | Git repository/environment adapter | `src/adapters/repo/git/*` | AC-F1 | — | PLANNED |
+| TRP-ADP-02 | ADP §2 | Core-controlled responsibilities not assumable by adapters; five "cannot" items | adapter API exposes no write path to `CURRENT`/objects | `test/unit/adapter-api-surface.test.ts` | — | PLANNED |
+| TRP-ADP-03 | ADP §3 | Adapter state not automatically authoritative; authority-affecting adapter data bound into core model; travels in transport | `adapter` namespace inside state object; `.treepo/adapters/` tracked | AC-L1 | — | PLANNED |
+| TRP-ADP-04 | ADP §4 layers 1–8 | Layered activation/execution order; adapter can reject but not validate invalid core transition | `src/adapters/activation.ts` pipeline | `test/integration/activation-order.test.ts` | — | PLANNED |
+| TRP-ADP-05 | ADP §5 | AI interprets; TReePo verifies; user authorizes (BLD-003/001A) | S6 | AC-F4..F9 | — | PLANNED |
+| TRP-ADP-06 | ADP §7 | Install must not corrupt repo work; compatibility deterministic; unknown prerequisites fail closed; no marketplace; install ≠ trust | manifest `coreApi` range check; first-party only | AC-F4, F8, G-series | — | PLANNED |
+| TRP-ADP-07 | ADP §8 | Adapter failure cannot corrupt state, report partial success, bypass tx, adopt inference, or trigger destructive uninstall | adapter errors abort before publication | `test/integration/adapter-failure.test.ts` | — | PLANNED |
+| TRP-ADP-08 | ADP §9 | Extension without modifying invariants; may not redefine core authority | adapter API versioned; core invariants not overridable | static inspection | — | PLANNED |
+| TRP-ADP-09 | ADP §11 | Manifest format, API versioning, capability declaration are engineering | S6 choices | n/a | — | PLANNED |
+
+## 7. Semantic Memory Contract
+
+| ID | Governing source | Requirement (pointer) | Implementation | Test | Evidence | Status |
+|---|---|---|---|---|---|---|
+| TRP-SEM-01 | SEM "Governing status" | Local SQLite semantic memory exists in v1 | `src/semantic/store.ts` via `node:sqlite` | AC-H1 | — | PLANNED |
+| TRP-SEM-02 | SEM §1, §2 | Permitted purposes and responsibilities | index/query/associate/rank | AC-H2 | — | PLANNED |
+| TRP-SEM-03 | SEM §3 (eleven "may not" items) | Forbidden responsibilities | semantic module has no import of core write APIs | static inspection; AC-H4, H6, H7, H9 | — | PLANNED |
+| TRP-SEM-04 | SEM §4 | Deterministic state wins; conflict surfaced | `treepo semantic query` annotates conflicts with current state | AC-H6 | — | PLANNED |
+| TRP-SEM-05 | SEM §5 | Core works with DB missing/empty/stale/corrupt/locked/deleted/rebuilding | core never opens the DB | AC-H3, H4, H8 | — | PLANNED |
+| TRP-SEM-06 | SEM §6 | Rebuildable/discardable; rebuild doesn't mutate deterministic state | `treepo semantic rebuild` | AC-H5 | — | PLANNED |
+| TRP-SEM-07 | SEM §7 | Indexing is not an authority transition | no journal/tx used by semantic | AC-H9 | — | PLANNED |
+| TRP-SEM-08 | SEM §8 | Engineering choices (schema, FTS, embeddings, location…) preserve boundaries; no required vendor/hosted dependency | ED-05, ED-13 | n/a | — | PLANNED |
+| TRP-SEM-09 | SEM §9 items 1–10 | Ten semantic acceptance requirements | S10 | `TRP-SEM-AC1..10` below | — | PLANNED |
+| TRP-SEM-10 | SEM §10 | Not a transport payload; works in both environments | DB under `runtime/`, excluded from export | AC-L7, M | — | PLANNED |
+| TRP-SEM-AC1 | SEM §9.1; AC H.3 | Deleting DB doesn't break validation | — | `test/integration/semantic-isolation.test.ts#delete` | — | PLANNED |
+| TRP-SEM-AC2 | SEM §9.2; AC H.4 | Corrupting DB doesn't redirect continuation | — | `#corrupt` | — | PLANNED |
+| TRP-SEM-AC3 | SEM §9.3; AC H.5 | Rebuild leaves authoritative bytes/identity unchanged | — | `#rebuild-bytes` | — | PLANNED |
+| TRP-SEM-AC4 | SEM §9.4; AC H.6 | Stale conflicting result cannot override | — | `#stale-conflict` | — | PLANNED |
+| TRP-SEM-AC5 | SEM §9.5; AC H.7 | High-confidence result cannot create approval | — | `#no-authority` | — | PLANNED |
+| TRP-SEM-AC6 | SEM §9.6 | Query useful without mutating state | — | `#query-no-mutation` | — | PLANNED |
+| TRP-SEM-AC7 | SEM §9.7 | Cannot select competing current state | — | `#no-current-selection` | — | PLANNED |
+| TRP-SEM-AC8 | SEM §9.8; AC H.8 | Fresh-agent continuation with semantic unavailable | — | C-series with DB locked/absent | — | PLANNED |
+| TRP-SEM-AC9 | SEM §9.9; AC H.1 | Local SQLite as required | — | `#is-sqlite` | — | PLANNED |
+| TRP-SEM-AC10 | SEM §9.10 | Semantic errors distinguishable from continuity failures | error taxonomy | `#error-taxonomy` | — | PLANNED |
+
+## 8. Acceptance / Proof Contract
+
+### A. Initialization/adoption
+
+| ID | Governing source | Requirement (pointer) | Implementation | Test | Evidence | Status |
+|---|---|---|---|---|---|---|
+| TRP-AC-A1 | AC A.1 | Init in supported Git repo with no prior TReePo state | `treepo init` | `test/integration/init.test.ts` | — | PLANNED |
+| TRP-AC-A2 | AC A.2 | Read-only preflight does not mutate before authorization | `treepo preflight` | `#preflight-readonly` (tree hash before/after) | — | PLANNED |
+| TRP-AC-A3 | AC A.3 | Deterministic repo facts collected mechanically | S4 | `#facts` | — | PLANNED |
+| TRP-AC-A4 | AC A.4 | One valid authoritative state created | genesis | `#genesis-valid` | — | PLANNED |
+| TRP-AC-A5 | AC A.5 | Exactly one current authority identifiable | `CURRENT` | `#single-current` | — | PLANNED |
+| TRP-AC-A6 | AC A.6 | Governed by TReePo intake/ownership/discovery rules, not repo-specific conventions | intake independent of repo layout | `#layout-agnostic` (odd repo layouts) | — | PLANNED |
+| TRP-AC-A7 | AC A.7 | TReePo-owned state distinguishable from ordinary files | `.treepo/` + `OWNER` | `#ownership-marker` | — | PLANNED |
+| TRP-AC-A8 | AC A.8 | Uninstall removes only provably owned material | `treepo uninstall` | `#uninstall-scope` | — | PLANNED |
+
+### B. Authoritative state and lineage
+
+| ID | Governing source | Requirement (pointer) | Implementation | Test | Evidence | Status |
+|---|---|---|---|---|---|---|
+| TRP-AC-B1 | AC B.1 | Never selected by timestamp/name/model | resolver | `test/integration/lineage.test.ts#no-mtime` (touch/rename decoys) | — | PLANNED |
+| TRP-AC-B2 | AC B.2 | Identity, seq/lineage, predecessor, integrity verify | validator | `#verify-chain` | — | PLANNED |
+| TRP-AC-B3 | AC B.3 | Prior history cannot be silently rewritten | object content-address, pointer, lineage, and descendant checks (ED-18 items 1–4) | `#tamper-history`; TRP-RFP-04, RFP-05 | — | PLANNED |
+| TRP-AC-B4 | AC B.4 | Valid successor preserves still-applicable accepted state | successor builder carries forward + explicit supersession | `#carry-forward` | — | PLANNED |
+| TRP-AC-B5 | AC B.5 | Malformed/missing/cyclic/divergent fails closed | validator | `#malformed`, `#cycle`, `#divergent` | — | PLANNED |
+| TRP-AC-B6 | AC B.6 | Exact unresolved next action durable | `core.nextAction` required field | `#next-action-durable` | — | PLANNED |
+
+### C. Pause/resume/fresh-agent
+
+| ID | Governing source | Requirement (pointer) | Implementation | Test | Evidence | Status |
+|---|---|---|---|---|---|---|
+| TRP-AC-C1 | AC C.1 | Agent A begins from valid state | `treepo begin` | `test/e2e/fresh-agent.test.ts` step 1 | — | PLANNED |
+| TRP-AC-C2 | AC C.2 | Agent A performs bounded real repo work | test performs real file change + commit | step 2 | — | PLANNED |
+| TRP-AC-C3 | AC C.3 | Valid successor published | `treepo progress`/`checkpoint` | step 3 | — | PLANNED |
+| TRP-AC-C4 | AC C.4 | Pause before unresolved next action | `treepo pause` | step 4 | — | PLANNED |
+| TRP-AC-C5 | AC C.5 | State validates | `treepo validate` | step 5 | — | PLANNED |
+| TRP-AC-C6 | AC C.6 | Session ends | process exit; capability discarded | step 6 | — | PLANNED |
+| TRP-AC-C7 | AC C.7 | Fresh Agent B, no prior conversation | new process, minimal env | step 7 | — | PLANNED |
+| TRP-AC-C8 | AC C.8 | B receives only permitted evidence | only repo path provided | step 8 | — | PLANNED |
+| TRP-AC-C9 | AC C.9 | B locates and validates state | `treepo orient` | step 9 | — | PLANNED |
+| TRP-AC-C10 | AC C.10 | B identifies completed, position, next action, constraints | `orient` JSON | step 10 | — | PLANNED |
+| TRP-AC-C11 | AC C.11 | B does not restart completed work | completed list consulted | step 11 | — | PLANNED |
+| TRP-AC-C12 | AC C.12 | B does not invent approval or begin unauthorized work | `resume` refuses without authz | step 12 | — | PLANNED |
+| TRP-AC-C13 | AC C.13 | After authorization, correct successor published and validated | `authorize` + `resume` | step 13 | — | PLANNED |
+
+### D. Transaction/concurrency/fault
+
+| ID | Governing source | Requirement (pointer) | Implementation | Test | Evidence | Status |
+|---|---|---|---|---|---|---|
+| TRP-AC-D1 | AC D.1 | Stale predecessor rejects without mutation | preconditions (state predecessor) and ED-18 `STALE_WORKING_COPY` (repository facts) | `test/integration/tx.test.ts#stale`; TRP-RFP-02, RFP-03 | — | PLANNED |
+| TRP-AC-D2 | AC D.2 | Sequence/state collision rejects | preconditions | `#collision` | — | PLANNED |
+| TRP-AC-D3 | AC D.3 | Divergent sibling blocks | preconditions | `#divergent-sibling` | — | PLANNED |
+| TRP-AC-D4 | AC D.4 | Second concurrent writer cannot publish | ED-10 | `test/integration/concurrency.test.ts` (two processes) | — | PLANNED |
+| TRP-AC-D5 | AC D.5 | Predecessor/staged/final validation occurs | ED-09 | `#three-validations` (spy) | — | PLANNED |
+| TRP-AC-D6 | AC D.6 | Interruption at each boundary leaves recoverable state | fault injection plan | `test/integration/fault.test.ts` (one case per boundary) | — | PLANNED |
+| TRP-AC-D7 | AC D.7 | Recovery yields only intended successor or exact predecessor | `recover` | `#recovery-outcomes` (byte compare) | — | PLANNED |
+| TRP-AC-D8 | AC D.8 | Foreign/ambiguous bytes not deleted/overwritten | recovery refuses | `#foreign-bytes` | — | PLANNED |
+| TRP-AC-D9 | AC D.9 | Exact retry creates no duplicate | request digest | `#exact-retry` | — | PLANNED |
+| TRP-AC-D10 | AC D.10 | Non-exact retry cannot create second truth | digest mismatch → reject | `#non-exact-retry` | — | PLANNED |
+| TRP-AC-D11 | AC D.11 | Malformed tx/recovery metadata fails safely | journal validator | `#malformed-journal` | — | PLANNED |
+| TRP-AC-D12 | AC D.12 | Post-failure state deterministically identifiable | `CURRENT` intact or rolled back | `#post-failure-identity` | — | PLANNED |
+
+### E. Provenance/authority
+
+| ID | Governing source | Requirement (pointer) | Implementation | Test | Evidence | Status |
+|---|---|---|---|---|---|---|
+| TRP-AC-E1 | AC E.1 | Identity of state/evidence/artifact machine-checkable | digests in object | `test/integration/provenance.test.ts` | — | PLANNED |
+| TRP-AC-E2 | AC E.2 | Proposal cannot satisfy approval | authz kinds distinct | `#proposal-not-approval` | — | PLANNED |
+| TRP-AC-E3 | AC E.3 | Acceptance cannot imply implementation authorization | scope match | `#acceptance-not-impl` | — | PLANNED |
+| TRP-AC-E4 | AC E.4 | Mechanical PASS cannot authenticate human intent | validator output labelled mechanical | `#pass-not-intent` | — | PLANNED |
+| TRP-AC-E5 | AC E.5 | AI text cannot satisfy repo facts | facts only from S4 | `#ai-facts-rejected` | — | PLANNED |
+| TRP-AC-E6 | AC E.6 | Adapter cannot bypass core validation | pipeline order | `#adapter-no-bypass` | — | PLANNED |
+| TRP-AC-E7 | AC E.7 | Unauthorized transition fails closed | authz gate + ED-16 authoritative-set binding | `#unauthorized-fails`, `#unanchored-grant-rejected`, `#modified-anchored-grant-rejected`, `#missing-anchored-grant-rejected` | — | PLANNED |
+
+### F. Adapter
+
+| ID | Governing source | Requirement (pointer) | Implementation | Test | Evidence | Status |
+|---|---|---|---|---|---|---|
+| TRP-AC-F1 | AC F.1 | Git facts via adapter boundary | S4 | `test/integration/git-adapter.test.ts` | — | PLANNED |
+| TRP-AC-F2 | AC F.2 | Core has no workflow role/stage/document semantics | S12 | `test/static/core-boundary.test.ts` | — | PLANNED |
+| TRP-AC-F3 | AC F.3 | One adapter proves begin/progress/checkpoint/pause/resume/handoff/continuation/transitions | S7 | C-series + `test/integration/continuity-adapter.test.ts` | — | PLANNED |
+| TRP-AC-F4 | AC F.4 | Incompatible/missing prerequisites reject | compat check | `#incompatible` | — | PLANNED |
+| TRP-AC-F5 | AC F.5 | Auto activation restricted | policy table | `#auto-activation-limits` | — | PLANNED |
+| TRP-AC-F6 | AC F.6 | Consequential actions need explicit authorization | authz gate accepts only ED-16 records anchored by the current authoritative state | `#consequential-needs-authz`, `#unanchored-grant-zero-authority` | — | PLANNED |
+| TRP-AC-F7 | AC F.7 | Installed/applicable/compatible/recommended ≠ authorized/active; expired/revoked/out-of-scope/unanchored unusable | state machine + ED-16 active authorization-set binding | `#state-distinctness`, `#expired`, `#revoked`, `#out-of-scope`, `#unanchored` | — | PLANNED |
+| TRP-AC-F8 | AC F.8 | First-party install ≠ trust/authority | — | `#install-not-trust` | — | PLANNED |
+| TRP-AC-F9 | AC F.9 | Router verifies four facts; AI intent not authority | S6 | `test/integration/router.test.ts` | — | PLANNED |
+| TRP-AC-F10 | AC F.10 | Unavailable/invalid capability reported without silent install/expansion | — | `#unavailable-reported` | — | PLANNED |
+| TRP-AC-F11 | AC F.11 | GCH and extra workflows not obligations | absent | static count | — | PLANNED |
+
+### G. Install/update/uninstall
+
+| ID | Governing source | Requirement (pointer) | Implementation | Test | Evidence | Status |
+|---|---|---|---|---|---|---|
+| TRP-AC-G1 | AC G.1 | Init bounded to owned surfaces | ED-06 | `test/integration/install.test.ts#bounded` | — | PLANNED |
+| TRP-AC-G2 | AC G.2 | Rerun idempotent or explicit migration | `init` rerun; `doctor --migrate` | `#rerun` | — | PLANNED |
+| TRP-AC-G3 | AC G.3 | Version incompatibility fails clearly | schema/core version check | `#version-mismatch` | — | PLANNED |
+| TRP-AC-G4 | AC G.4 | Ambiguous ownership blocks destructive uninstall | `OWNER` check | `#ambiguous-uninstall` | — | PLANNED |
+| TRP-AC-G5 | AC G.5 | Ordinary repo work intact | tree hash compare | `#repo-intact` | — | PLANNED |
+| TRP-AC-G6 | AC G.6 | Failed install/update cannot leave falsely valid state | init is itself a transaction | `#failed-init` (fault injection) | — | PLANNED |
+
+### H. Semantic SQLite
+
+| ID | Governing source | Requirement (pointer) | Implementation | Test | Evidence | Status |
+|---|---|---|---|---|---|---|
+| TRP-AC-H1 | AC H.1 | Local SQLite capability exists | S10 | see TRP-SEM-AC9 | — | PLANNED |
+| TRP-AC-H2 | AC H.2 | Retrieval/recall/navigation/context | S10 | `test/integration/semantic.test.ts` | — | PLANNED |
+| TRP-AC-H3 | AC H.3 | Deletion doesn't break continuity | — | TRP-SEM-AC1 | — | PLANNED |
+| TRP-AC-H4 | AC H.4 | Corruption cannot redirect | — | TRP-SEM-AC2 | — | PLANNED |
+| TRP-AC-H5 | AC H.5 | Rebuild leaves state unchanged | — | TRP-SEM-AC3 | — | PLANNED |
+| TRP-AC-H6 | AC H.6 | Stale/high-confidence cannot override | — | TRP-SEM-AC4 | — | PLANNED |
+| TRP-AC-H7 | AC H.7 | Inference cannot create authority | — | TRP-SEM-AC5 | — | PLANNED |
+| TRP-AC-H8 | AC H.8 | Fresh-agent continuation with semantic unavailable | — | TRP-SEM-AC8 | — | PLANNED |
+| TRP-AC-H9 | AC H.9 | Indexing/query doesn't mutate truth | — | TRP-SEM-AC6/AC7 | — | PLANNED |
+
+### I. Hydration/session
+
+| ID | Governing source | Requirement (pointer) | Implementation | Test | Evidence | Status |
+|---|---|---|---|---|---|---|
+| TRP-AC-I1 | AC I bullet 1 | Full hydration before routine credential issuance | S9 | `test/integration/hydration.test.ts#issue-after-full` | — | PLANNED |
+| TRP-AC-I2 | AC I b.2 | Session + working-copy + checkpoint binding | HMAC inputs; working-copy input is the ED-18 `workingCopy` partition, checkpoint input is `currentStateId` | `#binding`; TRP-RFP-07, RFP-08 | — | PLANNED |
+| TRP-AC-I3 | AC I b.3 | High-entropy ephemeral secret | `randomBytes(32)` | `#entropy` | — | PLANNED |
+| TRP-AC-I4 | AC I b.4 | No secret in authoritative/export/log evidence | scan objects, bundle, logs | `#no-leak` | — | PLANNED |
+| TRP-AC-I5 | AC I b.5 | Expiration | TTL | `#expiry` | — | PLANNED |
+| TRP-AC-I6 | AC I b.6 | Rotation after successful routine transition | — | `#rotate` | — | PLANNED |
+| TRP-AC-I7 | AC I b.7 | Prior secret invalidated | — | `#prior-invalid` | — | PLANNED |
+| TRP-AC-I8 | AC I b.8 | New identity on rehydration | — | `#new-identity` | — | PLANNED |
+| TRP-AC-I9 | AC I b.9 | Assurance-boundary invalidation (each listed boundary) | boundary detector; "changed working-copy conditions" evaluated on the ED-18 `workingCopy` partition | `#boundary-*` (one per boundary); TRP-RFP-08 | — | PLANNED |
+| TRP-AC-I10 | AC I b.10 | Wrong copy/checkpoint/secret rejected | — | `#wrong-*` | — | PLANNED |
+| TRP-AC-I11 | AC I b.11 | Failed publication leaves no usable successor capability; no false success | — | `#failed-publish` | — | PLANNED |
+| TRP-AC-I12 | AC I b.12 | Lost response/uncertainty → full hydration | — | `#lost-response` | — | PLANNED |
+| TRP-AC-I13 | AC I b.13 | Capability never bypasses any gate | fast lane runs the same authoritative integrity, complete-lineage, divergence, parse, authorization-set, lock, and stale-working-copy validators required before publication | `#no-bypass`, `#historical-object-tamper-fails-before-routine-publish` | — | PLANNED |
+| TRP-AC-I14 | AC I b.14 | Eligibility deterministic and bounded | predicate | `#eligibility-deterministic` | — | PLANNED |
+| TRP-AC-I15 | AC I b.15 | Full assurance mandatory at boundaries; fallback on uncertainty | — | `#fallback` | — | PLANNED |
+| TRP-AC-I16 | AC I b.16 | Removing capability affects efficiency only | run suite with fast lane disabled | `#disabled-correctness` | — | PLANNED |
+| TRP-AC-I17 | AC I b.17 | Eligible same-session work exercises reduced path; no numeric target | counter of skipped full checks | `#reduced-path-exercised` | — | PLANNED |
+
+### J. Generic-core boundary
+
+| ID | Governing source | Requirement (pointer) | Implementation | Test | Evidence | Status |
+|---|---|---|---|---|---|---|
+| TRP-AC-J1 | AC J.1 | Core lifecycle/state/path/schema/package implement only permitted generic behavior | S12 | `test/static/core-boundary.test.ts` | — | PLANNED |
+| TRP-AC-J2 | AC J.2 | Workflow semantics outside core | — | same | — | PLANNED |
+| TRP-AC-J3 | AC J.3 | No literal `Director` role in core | token scan | `#no-director-token` | — | PLANNED |
+| TRP-AC-J4 | AC J.4 | Discretion only within open boundaries | ED register cross-check (§11 below) | review | — | PLANNED |
+| TRP-AC-J5 | AC J.5 | Acceptance by required evidence; regression suites supplement only | acceptance runner tags | report | — | PLANNED |
+
+### K. Claim limits
+
+| ID | Governing source | Requirement (pointer) | Implementation | Test | Evidence | Status |
+|---|---|---|---|---|---|---|
+| TRP-AC-K1 | AC K | Acceptance does not establish the eight listed broader claims | report "Claims not made" section | review | — | PLANNED |
+
+### L. Transport
+
+| ID | Governing source | Requirement (pointer) | Implementation | Test | Evidence | Status |
+|---|---|---|---|---|---|---|
+| TRP-AC-L1 | AC L.1 | Transport carries complete state incl. authority-bearing adapter state | ED-14 | `test/integration/transport.test.ts#complete` | — | PLANNED |
+| TRP-AC-L2 | AC L.2 | Receiving copy validates and recovers without origin credentials/locks/caches/chat/SQLite | `import` | `#independent-validate` | — | PLANNED |
+| TRP-AC-L3 | AC L.3 | Missing/tampered/stale/contradictory data cannot produce false continuation | manifest verify | `#tamper`, `#missing`, `#stale`, `#contradictory` | — | PLANNED |
+| TRP-AC-L4 | AC L.4 | Ephemeral excluded; stale capability cannot survive receiving boundary | exclusion list | `#ephemeral-excluded` | — | PLANNED |
+| TRP-AC-L5 | AC L.5 | Clone/export documented accurately | docs | doc review | — | PLANNED |
+| TRP-AC-L6 | AC L.6 | Works between both environments | Win→WSL and WSL→Win runs | M-series | — | PLANNED |
+| TRP-AC-L7 | AC L.7 | SQLite loss/rebuild doesn't prevent recovery after transport | — | `#post-transport-semantic-loss` | — | PLANNED |
+
+### M. Dual-environment
+
+| ID | Governing source | Requirement (pointer) | Implementation | Test | Evidence | Status |
+|---|---|---|---|---|---|---|
+| TRP-AC-M1 | AC M | Same suite A–L in Windows 11 NTFS | acceptance runner | full run | — | PLANNED |
+| TRP-AC-M2 | AC M | Same suite in Ubuntu WSL2 ext4 (not `/mnt/c`) | fresh clone; `stat -f` check | full run | — | PLANNED (depends on Director decision D-1) |
+| TRP-AC-M3 | AC M | Per-environment versions, location, toolchain, commands, totals, invariant map | report generator | report | — | PLANNED |
+| TRP-AC-M4 | AC M | Transport directions demonstrated across the pair | AC-L6 | report | — | PLANNED |
+
+### N. Evidence boundary
+
+| ID | Governing source | Requirement (pointer) | Implementation | Test | Evidence | Status |
+|---|---|---|---|---|---|---|
+| TRP-AC-N1 | AC N | Fable chooses frameworks/fixtures/injection/toolchain; no new vendor/perf threshold; fresh-agent proof mandatory | ED-01..04 | — | — | PLANNED |
+
+## 9. AGENTS.md / Execution Prompt operational obligations
+
+| ID | Governing source | Requirement (pointer) | Implementation | Test | Evidence | Status |
+|---|---|---|---|---|---|---|
+| TRP-AG-01 | AG §14; EP §8 | No push/publish/release/PR; no main modification; no host-wide installs; local commits permitted | process discipline | git log review | gate: no remote configured; main untouched | IN-PROGRESS (observed) |
+| TRP-AG-02 | AG §15 list | Fifteen required test categories | mapped: unit (B), integration (D), adapter (F), authority-negative (E), stale/divergence/corruption (B5, D), fault (D6), idempotency (D9), concurrent (D4), fresh-agent (C), semantic (H), Router (F9), fast-lane (I), transport (L), install (G), Windows (M1), WSL (M2) | — | — | PLANNED |
+| TRP-AG-03 | AG §17 | Working method eight steps per subsystem | Plan §5/§6 | ledger updates per phase | — | PLANNED |
+| TRP-EP-01 | EP §4 | Protected files unmodified | none touched | `git diff --stat` on protected paths at each checkpoint | gate: verified clean | IN-PROGRESS (observed) |
+| TRP-EP-02 | EP §9 | `.gitattributes` preserved; `/mnt/c` not Linux proof | untouched; M2 check | — | — | PLANNED |
+| TRP-EP-03 | EP §10, §11 | Ledger and plan created and maintained | this file; plan | — | gate: created 2026-09-15 | IN-PROGRESS |
+
+## 10. Repository-fact partition (ED-18, Director-requested correction)
+
+Governing sources: ARCH §3 (immutability, single identifiable current state), ARCH §6 (stale/divergence), ARCH §12 (repository facts bound to validation, ambiguity fails closed), ARCH §14 / DEF invariant 13 (capability bound to working copy and checkpoint), AC B.3, AC D.1, AC I b.2 and b.9, BLD-004 (TReePo-owned state is authoritative and travels with the project). ED-18 is an engineering mechanism under ARCH §12's "exact Git tracking/export mechanics are engineering choices"; it changes no requirement.
+
+| ID | Governing source | Requirement (pointer) | Implementation | Test | Evidence | Status |
+|---|---|---|---|---|---|---|
+| TRP-RFP-01 | ARCH §12; ARCH §3 "current durable state is sufficient…"; BLD-004 | TReePo-owned publication must not make its own recorded repository facts stale | ED-18: `.treepo/**` entries removed from `workingCopy` before hashing; `runtime/**` Git-ignored | `test/integration/repo-fact-partition.test.ts#publish-no-self-invalidate` (N successive publications; `workingCopy` byte-identical; none rejected; porcelain shows only `.treepo/` paths) | — | PLANNED |
+| TRP-RFP-02 | ARCH §12; ARCH §6 stale rule; AC D.1 | Ordinary working-tree mutation outside `.treepo/` is detected and rejects a stale request without mutation | `STALE_WORKING_COPY` comparison after lock acquisition | `#user-edit-detected`, `#user-untracked-detected`, `#user-staged-detected` (authoritative bytes unchanged after rejection) | — | PLANNED |
+| TRP-RFP-03 | ARCH §12 "HEAD/branch/worktree changes"; AC D.1 | Commit, branch switch, worktree change, and merge/rebase state are detected | `head`, `branch`, `worktreeId`, `conflictDigest` in `workingCopy` | `#user-commit-detected`, `#branch-switch-detected`, `#merge-in-progress-detected`; re-observation then succeeds | — | PLANNED |
+| TRP-RFP-04 | ARCH §3 immutability; AC B.3; DEF invariant 2; AC I b.13 | Exclusion from the dirty fingerprint does not hide byte tampering with `.treepo/state` objects or `CURRENT`, including during routine transitions | ED-18 checks 1–4 and 6 run before every state-changing publication | `#treepo-object-tamper` (flip one byte in an older object → `INTEGRITY` failure; `orient` refuses), `#historical-object-tamper-fails-before-routine-publish`, `#current-pointer-tamper` | — | PLANNED |
+| TRP-RFP-05 | ARCH §3 "not selected by timestamp/filename/model"; ARCH §6 divergence; AC B.5 | Rewinding `CURRENT` or planting a sibling successor fails closed via lineage, never via timestamps | ED-18 checks 3–4 (lineage walk, descendant/sibling enumeration) | `#current-rollback-detected` → `AUTHORITATIVE_DIVERGENCE`; `#sibling-successor-detected`; decoy mtimes/names ignored | — | PLANNED |
+| TRP-RFP-06 | ADP §3 (authority-bearing adapter state bound into core model); ARCH §7; ARCH §8; ARCH §12 ambiguity fails closed | `OWNER`, adapter registry, and the complete active authorization set cannot be altered outside a governed transition without detection; unanchored authorization records carry zero authority; unparseable authoritative bytes fail closed | ED-16 + ED-18 checks 5–6 (`surfaceDigests`, active authorization-set binding, parse failure) | `#surface-digest-mismatch` → `AUTHORITATIVE_SURFACE_MISMATCH`; `#unanchored-grant-zero-authority`; `#modified-anchored-grant-rejected`; `#missing-anchored-grant-rejected`; `#conflict-markers-fail-closed` | — | PLANNED |
+| TRP-RFP-07 | ARCH §14; DEF invariant 13; AC I b.2, b.4, b.6 | Hydration fingerprint uses the `workingCopy` partition; routine transitions do not self-invalidate; secrets never enter fingerprints or porcelain output | ED-12 + ED-18 | `#hydration-fp-excludes-treepo` (routine transition stays on the routine path and rotates), `#runtime-ignored-not-in-fingerprint` (secret string absent from state, porcelain, fingerprint) | — | PLANNED |
+| TRP-RFP-08 | ARCH §14 "assurance boundaries invalidate"; AC I b.9, b.10, b.13 | User mutation outside `.treepo/` and any `CURRENT` rewind invalidate the capability and force full assurance | eligibility predicate on `workingCopy` + bound `currentStateId` | `#hydration-user-mutation-invalidates`, `#hydration-current-rewind-invalidates`, `#hydration-commit-invalidates` | — | PLANNED |
+| TRP-RFP-09 | AC K; DEF invariant 12 | Stated limitation is not claimed away: consistent rewind plus deletion of all descendants is undetectable from local bytes alone; Git history and the ED-14 bundle manifest are the evidence | `doctor` reports HEAD-vs-worktree difference under `.treepo/state`; report "Claims not made" | `#doctor-reports-head-divergence`; report review | — | PLANNED |
+
+## 11. Engineering decision cross-reference
+
+| ED | Discretion granted by | Ledger rows affected |
+|---|---|---|
+| ED-01..05 | AG §12; EP §6; HO §3; BLD-005 ("Fable may select and pin the runtime/toolchain") | TRP-BLD-005, TRP-AC-M*, TRP-AC-N1 |
+| ED-06, ED-07 | DEF "exact TReePo-owned namespace"; BLD-004 "tracked/untracked split" | TRP-AC-A7, A8, G1, G4, TRP-BLD-004 |
+| ED-08 | ARCH §3 "Representation"; DEF "deterministic state schema/serialization" | TRP-INV-02, 03, TRP-ARCH-03, B-series |
+| ED-09, ED-10 | AG §12 "transaction/journal representation", "locking mechanism" | TRP-INV-05..07, D-series |
+| ED-11 | ADP §11; ARCH §12 | TRP-ADP-01, TRP-ARCH-12 |
+| ED-12 | ARCH §14 (mechanics); DEF invariant 13 | I-series |
+| ED-13 | SEM §8; EP §7 | TRP-SEM-08, TRP-BLD-SPB |
+| ED-14 | BLD-004 "transport mechanism"; AC L "exact format and transfer mechanism remain Fable engineering" | L-series |
+| ED-15 | AG §12 "CLI command names" | none (naming only) |
+| ED-16 | ARCH §7 "exact data fields are engineering decisions"; §8 | E-series, TRP-AC-F6, TRP-AC-F7, TRP-RFP-06 |
+| ED-17 | BLD-005 platform isolation | TRP-ARCH-17, M-series |
+| ED-18 | ARCH §12 "exact Git tracking/export mechanics are engineering choices"; ARCH §3 "Representation"; BLD-004 tracked/untracked split | TRP-RFP-01..09, TRP-ARCH-12, TRP-INV-02, TRP-INV-03, TRP-INV-06, TRP-AC-B3, TRP-AC-D1, TRP-AC-I2, TRP-AC-I9, TRP-AC-I13 |
