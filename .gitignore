@@ -1,0 +1,8 @@
+# Repository-local tooling (ED-02); reproduced from package-lock.json
+node_modules/
+
+# Raw acceptance/phase logs are delivered outside the repository (Director decision D-3)
+evidence/
+
+# TypeScript incremental artifacts (none expected; typecheck is noEmit)
+*.tsbuildinfo

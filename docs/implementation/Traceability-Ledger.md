@@ -1,6 +1,6 @@
 # Traceability Ledger — TReePo v1
 
-**Status:** Created at the Initial Execution Gate; section 10 added 2026-09-15 for the Director-requested ED-18 correction. All implementation rows `PLANNED`. Maintained continuously during implementation.
+**Status:** Created at the Initial Execution Gate; section 10 added 2026-09-15 for the Director-requested ED-18 correction. Phase 1 exit recorded 2026-09-16 (rows advanced to `IN-PROGRESS` cite `Phase-Evidence.md`). Maintained continuously during implementation.
 
 **Authority note:** Derived IDs (`TRP-*`) are navigation and audit aids only. They do not replace the governing requirement, are not independent authority, do not change requirement meaning, and do not permit reinterpretation. The **Governing source** column is normative; the **Requirement** column is a pointer paraphrase and yields to the source text on any difference.
 
@@ -18,11 +18,11 @@
 |---|---|---|---|---|---|---|
 | TRP-BLD-001A | BLD §BLD-001A; DEF/PC/ARCH/ADP "LOCKED — BLD-001A" | Router in v1; AI may interpret and propose; deterministic verification of installation, applicability, compatibility, prerequisites before activation; selection ≠ install ≠ authorization | `src/adapters/router.ts`, `src/adapters/registry.ts` | `test/integration/router.test.ts` | — | PLANNED |
 | TRP-BLD-001B | BLD §BLD-001B; DEF/PC/ARCH "LOCKED — BLD-001B" | ROUTINE_DELTA fast lane for eligible same-session routine transitions; full assurance mandatory at boundaries and universal fallback; efficiency only | `src/hydration/*` | `test/integration/hydration.test.ts` | — | PLANNED |
-| TRP-BLD-002 | BLD §BLD-002; DEF/PC/ARCH/ADP "LOCKED — BLD-002" | Exactly one minimal first-party general-purpose continuity workflow adapter; GCH deferred | `src/adapters/workflow/continuity/*` (only workflow adapter directory) | `test/static/one-workflow-adapter.test.ts`; C-series | — | PLANNED |
+| TRP-BLD-002 | BLD §BLD-002; DEF/PC/ARCH/ADP "LOCKED — BLD-002" | Exactly one minimal first-party general-purpose continuity workflow adapter; GCH deferred | `src/adapters/workflow/continuity/*` (only workflow adapter directory) | `test/static/one-workflow-adapter.test.ts`; C-series | `Phase-Evidence.md` §Phase 1: static scan asserts at most one workflow adapter (tightened to exactly one in Phase 6) | IN-PROGRESS |
 | TRP-BLD-003 | BLD §BLD-003; DEF/PC/ARCH/ADP "LOCKED — BLD-003" | Consequence/authority-based activation; auto only non-authoritative, non-consequential, in-scope; explicit authorization for consequential authority; states distinct | `src/adapters/activation.ts`, `src/core/authz.ts` | `test/integration/activation.test.ts` | — | PLANNED |
 | TRP-BLD-004 | BLD §BLD-004; DEF/PC/ARCH "LOCKED — BLD-004" | Repository-attached authoritative state; complete durable state transportable via deterministic verifiable mechanism; ephemeral excluded; semantic subordinate | ED-07 split; `src/transport/*` | `test/integration/transport.test.ts` | — | PLANNED |
-| TRP-BLD-005 | BLD §BLD-005; DEF/PC/ARCH/ADP/SEM/AC "LOCKED — BLD-005" | Support and acceptance on Windows 11 NTFS + Git and Ubuntu WSL2 Linux-fs + Git; same guarantees; platform isolation; no Docker requirement | `src/platform/*`; acceptance runner | full suite in both environments | — | PLANNED |
-| TRP-BLD-SPB | BLD "Semantic Processing Execution Boundary"; EP §7 | No silent routing of repository content to an additional external provider; local models local; cloud via selected provider only | ED-13: no network calls in TReePo v1 | `test/static/no-network.test.ts` (scan for `fetch`, `http`, `net` imports) | — | PLANNED |
+| TRP-BLD-005 | BLD §BLD-005; DEF/PC/ARCH/ADP/SEM/AC "LOCKED — BLD-005" | Support and acceptance on Windows 11 NTFS + Git and Ubuntu WSL2 Linux-fs + Git; same guarantees; platform isolation; no Docker requirement | `src/platform/*`; acceptance runner | full suite in both environments | `Phase-Evidence.md` §Phase 1: platform layer implemented and unit-tested on win32; acceptance runs pending | IN-PROGRESS |
+| TRP-BLD-SPB | BLD "Semantic Processing Execution Boundary"; EP §7 | No silent routing of repository content to an additional external provider; local models local; cloud via selected provider only | ED-13: no network calls in TReePo v1 | `test/static/no-network.test.ts` (scan for `fetch`, `http`, `net` imports) | `Phase-Evidence.md` §Phase 1: no-network static scan passes on Phase 1 source set | IN-PROGRESS |
 
 ## 2. Protected invariants (DEF "Protected invariants")
 
@@ -30,13 +30,13 @@
 |---|---|---|---|---|---|---|
 | TRP-INV-01 | DEF Protected invariants §1; AG §3 | Single authoritative continuity truth | `src/core/state/current.ts` (only `CURRENT` pointer) | B-series | — | PLANNED |
 | TRP-INV-02 | DEF §2; AG §3 | Immutable/verifiable lineage | `src/core/state/lineage.ts` | `test/unit/lineage.test.ts`; AC-B3 | — | PLANNED |
-| TRP-INV-03 | DEF §3 | Machine-verifiable provenance and integrity | `src/core/state/validate.ts`, `src/core/canon.ts` | `test/unit/validate.test.ts` | — | PLANNED |
+| TRP-INV-03 | DEF §3 | Machine-verifiable provenance and integrity | `src/core/state/validate.ts`, `src/core/canon.ts` | `test/unit/validate.test.ts` | `Phase-Evidence.md` §Phase 1: canonical serialization + SHA-256 identity implemented; state validator pending (Phase 2) | IN-PROGRESS |
 | TRP-INV-04 | DEF §4; ARCH §4, §8 | Mechanical PASS does not manufacture semantic authority | `src/core/authz.ts` (presence/structure only) | AC-E4 | — | PLANNED |
 | TRP-INV-05 | DEF §5; ARCH §5 | Transaction publication fail-safe and validated | `src/core/tx/*` | D-series | — | PLANNED |
 | TRP-INV-06 | DEF §6; ARCH §6 | Stale, divergent, concurrent, ambiguous, corrupt mutation fails closed | `src/core/tx/preconditions.ts`, `src/core/lock.ts`; ED-18 partition for working-copy staleness | AC-D1..D4, D11; TRP-RFP-02..06 | — | PLANNED |
 | TRP-INV-07 | DEF §7; ARCH §6 | Exact retry idempotent | `src/core/tx/idempotency.ts` (request digest in journal + object) | AC-D9, D10 | — | PLANNED |
 | TRP-INV-08 | DEF §8; ARCH §2 | Exact continuation position survives pause/handoff | `src/core/continuation.ts` | C-series | — | PLANNED |
-| TRP-INV-09 | DEF §9; ARCH §2, §16 | Core remains workflow-agnostic | `src/core/**` contains no workflow vocabulary | `test/static/core-boundary.test.ts` | — | PLANNED |
+| TRP-INV-09 | DEF §9; ARCH §2, §16 | Core remains workflow-agnostic | `src/core/**` contains no workflow vocabulary | `test/static/core-boundary.test.ts` | `Phase-Evidence.md` §Phase 1: core-boundary static scan passes on Phase 1 core | IN-PROGRESS |
 | TRP-INV-10 | DEF §10; ARCH §16 | AI/semantic interpretation cannot bypass deterministic prerequisites | Router/activation layering (ADP §4) | AC-F9, AC-E5 | — | PLANNED |
 | TRP-INV-11 | DEF §11; SEM §6 | Semantic memory non-authoritative and rebuildable | `src/semantic/*` read-only w.r.t. core | H-series | — | PLANNED |
 | TRP-INV-12 | DEF §12; AC K | Claims remain evidence-bounded | acceptance report generator emits only measured facts | review of reports | — | PLANNED |
@@ -48,11 +48,11 @@
 |---|---|---|---|---|---|---|
 | TRP-DEF-01 | DEF "Product identity" | Name TReePo; Universal Repository Harness | package name, CLI banner | n/a | — | PLANNED |
 | TRP-DEF-02 | DEF "Intended outcome" 1–7 | Fresh authorized agent can locate, validate, identify completed/next, understand authority, refuse invalid, continue only after authorization | `treepo orient` (S8) | AC-C7..C13 | — | PLANNED |
-| TRP-DEF-03 | DEF "Core versus adapters" LOCKED | Core independent of workflow, product, role name, PRD process, provider | S12 inspection | `test/static/core-boundary.test.ts` | — | PLANNED |
-| TRP-DEF-04 | DEF "Initial product form"; PC "Operating model" | Local-first CLI + repository harness; no hosted control plane; no vendor requirement | no network code; no service dependency | `test/static/no-network.test.ts` | — | PLANNED |
+| TRP-DEF-03 | DEF "Core versus adapters" LOCKED | Core independent of workflow, product, role name, PRD process, provider | S12 inspection | `test/static/core-boundary.test.ts` | `Phase-Evidence.md` §Phase 1: core-boundary static scan passes on Phase 1 core | IN-PROGRESS |
+| TRP-DEF-04 | DEF "Initial product form"; PC "Operating model" | Local-first CLI + repository harness; no hosted control plane; no vendor requirement | no network code; no service dependency | `test/static/no-network.test.ts` | `Phase-Evidence.md` §Phase 1: no-network static scan passes; no service dependency | IN-PROGRESS |
 | TRP-DEF-05 | DEF "Deterministic authority philosophy" | Chat history, model memory, semantic retrieval, timestamps, retry receipts, journals, session leases are not competing truth | current-state resolution reads only `CURRENT` + objects | AC-B1; H-series; I-series | — | PLANNED |
 | TRP-DEF-06 | DEF "Deterministic authority philosophy" | Proposal, approval, acceptance, implementation authorization distinct | authz record kinds; core keeps them separable | AC-E2, E3 | — | PLANNED |
-| TRP-DEF-07 | DEF "LOCKED placement decision"; ADP §10 | Governed Cumulative Handoff outside v1 and outside core | absent by design | `test/static/one-workflow-adapter.test.ts` | — | PLANNED |
+| TRP-DEF-07 | DEF "LOCKED placement decision"; ADP §10 | Governed Cumulative Handoff outside v1 and outside core | absent by design | `test/static/one-workflow-adapter.test.ts` | `Phase-Evidence.md` §Phase 1: static scan asserts at most one workflow adapter | IN-PROGRESS |
 | TRP-DEF-08 | DEF REJECTED list | No deterministic/guessable hydration secrets; non-secret identifiers not proof | `crypto.randomBytes(32)`; HMAC | AC-I3, I10 | — | PLANNED |
 | TRP-DEF-09 | DEF "Evidence / claim boundaries" | Prove in a supported Git repo with no pre-existing TReePo state before general claims | integration fixtures create fresh repos | all integration tests | — | PLANNED |
 | TRP-DEF-10 | DEF ESTABLISHED "bootstrap should discover mechanically knowable facts"; PC "Usability requirement" | Discover knowable facts; never infer human-only facts | `treepo preflight` / `init` intake draft | AC-A3 | — | PLANNED |
@@ -76,15 +76,15 @@
 | TRP-PC-13 | PC "Adapter foundation" bullets | Workflow + repo adapter interfaces; Git; compatibility validation; authority-safe activation; Router; one adapter | S4, S6, S7 | F-series | — | PLANNED |
 | TRP-PC-14 | PC "Semantic v1" bullets | Local SQLite; retrieval; subordinate; rebuildable | S10 | H-series | — | PLANNED |
 | TRP-PC-15 | PC "What remains deterministic" list incl. "semantic may affect authoritative state: it is not" | Enumerated deterministic facts | S2–S6 | mapped per item in code comments to this ID | — | PLANNED |
-| TRP-PC-16 | PC "Failure philosophy" | Fail closed or escalate; semantic failures degrade retrieval only | error taxonomy distinguishes `ContinuityError` vs `SemanticError` | H-series; TRP-SEM-AC10 | — | PLANNED |
-| TRP-PC-17 | PC "Independence requirements" | No required PRD workflow, `Director` role, AI vendor, hosted service, or chat history | S12 inspection | `test/static/core-boundary.test.ts` | — | PLANNED |
+| TRP-PC-16 | PC "Failure philosophy" | Fail closed or escalate; semantic failures degrade retrieval only | error taxonomy distinguishes `ContinuityError` vs `SemanticError` | H-series; TRP-SEM-AC10 | `Phase-Evidence.md` §Phase 1: ContinuityError/PlatformError/UsageError taxonomy; semantic error class pending (Phase 8) | IN-PROGRESS |
+| TRP-PC-17 | PC "Independence requirements" | No required PRD workflow, `Director` role, AI vendor, hosted service, or chat history | S12 inspection | `test/static/core-boundary.test.ts` | `Phase-Evidence.md` §Phase 1: no-`Director`-token scan passes on Phase 1 core | IN-PROGRESS |
 
 ## 5. Architecture Contract
 
 | ID | Governing source | Requirement (pointer) | Implementation | Test | Evidence | Status |
 |---|---|---|---|---|---|---|
 | TRP-ARCH-01 | ARCH §1 | Deterministic machinery establishes truth; probabilistic assists only | module boundaries (core vs semantic vs router) | static inspection | — | PLANNED |
-| TRP-ARCH-02 | ARCH §2 | Core mechanisms list; no workflow/provider semantics in core | `src/core/**` | static inspection; B/D/E | — | PLANNED |
+| TRP-ARCH-02 | ARCH §2 | Core mechanisms list; no workflow/provider semantics in core | `src/core/**` | static inspection; B/D/E | `Phase-Evidence.md` §Phase 1: core-boundary static scan passes on Phase 1 core | IN-PROGRESS |
 | TRP-ARCH-03 | ARCH §3 "Governing properties" | Exactly one current state mechanically identifiable; not by timestamp/name/model/similarity; predecessor relation; immutability; sufficiency; no silent discard | ED-08 object model; `CURRENT` | AC-B1..B4 | — | PLANNED |
 | TRP-ARCH-04 | ARCH §4 | Mechanical vs semantic/human truth distinguished; core validation mandatory regardless of adapter | validator API returns `mechanical` facts only; adapters cannot skip | AC-E4, E6 | — | PLANNED |
 | TRP-ARCH-05 | ARCH §5 items 1–9 | Transaction/recovery properties | ED-09 | AC-D5..D8, D11 | — | PLANNED |
@@ -97,10 +97,10 @@
 | TRP-ARCH-12 | ARCH §12 | Git facts mechanical; dirty/HEAD/branch/worktree changes bound to validation; ambiguity fails closed | S4; `repoFacts.workingCopy` bound into validation per ED-18; `.treepo/**` protected by integrity validation instead of the dirty fingerprint | AC-E5, F1; TRP-RFP-01..06 | — | PLANNED |
 | TRP-ARCH-13 | ARCH §13 | Semantic subsystem downstream/subordinate | S10 | H-series | — | PLANNED |
 | TRP-ARCH-14 | ARCH §14 | Capability-gate pattern: hydration first; bound; high-entropy ephemeral; rotates; boundaries invalidate; not authority | S9 | I-series | — | PLANNED |
-| TRP-ARCH-15 | ARCH §15 | Separation matrix ownership | module layout | static inspection | — | PLANNED |
+| TRP-ARCH-15 | ARCH §15 | Separation matrix ownership | module layout | static inspection | `Phase-Evidence.md` §Phase 1: module layout established; scan passes | IN-PROGRESS |
 | TRP-ARCH-16 | ARCH §16 | Forbidden shortcuts (nine items) | design review checklist (Plan §10) | static inspection + H/I/F negative tests | — | PLANNED |
-| TRP-ARCH-17 | ARCH §17 | Platform isolation (see BLD-005) | ED-17 | M-series | — | PLANNED |
-| TRP-ARCH-18 | ARCH §18 | One workflow adapter (see BLD-002) | S7 | static count test | — | PLANNED |
+| TRP-ARCH-17 | ARCH §17 | Platform isolation (see BLD-005) | ED-17 | M-series | `Phase-Evidence.md` §Phase 1: ED-17 platform layer implemented; win32 unit-tested; linux pending Phase 11 | IN-PROGRESS |
+| TRP-ARCH-18 | ARCH §18 | One workflow adapter (see BLD-002) | S7 | static count test | `Phase-Evidence.md` §Phase 1: static scan asserts at most one workflow adapter | IN-PROGRESS |
 
 ## 6. Adapter Contract
 
@@ -219,7 +219,7 @@
 | ID | Governing source | Requirement (pointer) | Implementation | Test | Evidence | Status |
 |---|---|---|---|---|---|---|
 | TRP-AC-F1 | AC F.1 | Git facts via adapter boundary | S4 | `test/integration/git-adapter.test.ts` | — | PLANNED |
-| TRP-AC-F2 | AC F.2 | Core has no workflow role/stage/document semantics | S12 | `test/static/core-boundary.test.ts` | — | PLANNED |
+| TRP-AC-F2 | AC F.2 | Core has no workflow role/stage/document semantics | S12 | `test/static/core-boundary.test.ts` | `Phase-Evidence.md` §Phase 1: core-boundary static scan passes on Phase 1 core | IN-PROGRESS |
 | TRP-AC-F3 | AC F.3 | One adapter proves begin/progress/checkpoint/pause/resume/handoff/continuation/transitions | S7 | C-series + `test/integration/continuity-adapter.test.ts` | — | PLANNED |
 | TRP-AC-F4 | AC F.4 | Incompatible/missing prerequisites reject | compat check | `#incompatible` | — | PLANNED |
 | TRP-AC-F5 | AC F.5 | Auto activation restricted | policy table | `#auto-activation-limits` | — | PLANNED |
@@ -228,7 +228,7 @@
 | TRP-AC-F8 | AC F.8 | First-party install ≠ trust/authority | — | `#install-not-trust` | — | PLANNED |
 | TRP-AC-F9 | AC F.9 | Router verifies four facts; AI intent not authority | S6 | `test/integration/router.test.ts` | — | PLANNED |
 | TRP-AC-F10 | AC F.10 | Unavailable/invalid capability reported without silent install/expansion | — | `#unavailable-reported` | — | PLANNED |
-| TRP-AC-F11 | AC F.11 | GCH and extra workflows not obligations | absent | static count | — | PLANNED |
+| TRP-AC-F11 | AC F.11 | GCH and extra workflows not obligations | absent | static count | `Phase-Evidence.md` §Phase 1: static scan asserts at most one workflow adapter | IN-PROGRESS |
 
 ### G. Install/update/uninstall
 
@@ -281,9 +281,9 @@
 
 | ID | Governing source | Requirement (pointer) | Implementation | Test | Evidence | Status |
 |---|---|---|---|---|---|---|
-| TRP-AC-J1 | AC J.1 | Core lifecycle/state/path/schema/package implement only permitted generic behavior | S12 | `test/static/core-boundary.test.ts` | — | PLANNED |
-| TRP-AC-J2 | AC J.2 | Workflow semantics outside core | — | same | — | PLANNED |
-| TRP-AC-J3 | AC J.3 | No literal `Director` role in core | token scan | `#no-director-token` | — | PLANNED |
+| TRP-AC-J1 | AC J.1 | Core lifecycle/state/path/schema/package implement only permitted generic behavior | S12 | `test/static/core-boundary.test.ts` | `Phase-Evidence.md` §Phase 1: core-boundary static scan skeleton passes | IN-PROGRESS |
+| TRP-AC-J2 | AC J.2 | Workflow semantics outside core | — | same | `Phase-Evidence.md` §Phase 1: core-boundary static scan skeleton passes | IN-PROGRESS |
+| TRP-AC-J3 | AC J.3 | No literal `Director` role in core | token scan | `#no-director-token` | `Phase-Evidence.md` §Phase 1: no-`Director`-token scan passes | IN-PROGRESS |
 | TRP-AC-J4 | AC J.4 | Discretion only within open boundaries | ED register cross-check (§11 below) | review | — | PLANNED |
 | TRP-AC-J5 | AC J.5 | Acceptance by required evidence; regression suites supplement only | acceptance runner tags | report | — | PLANNED |
 
@@ -318,18 +318,18 @@
 
 | ID | Governing source | Requirement (pointer) | Implementation | Test | Evidence | Status |
 |---|---|---|---|---|---|---|
-| TRP-AC-N1 | AC N | Fable chooses frameworks/fixtures/injection/toolchain; no new vendor/perf threshold; fresh-agent proof mandatory | ED-01..04 | — | — | PLANNED |
+| TRP-AC-N1 | AC N | Fable chooses frameworks/fixtures/injection/toolchain; no new vendor/perf threshold; fresh-agent proof mandatory | ED-01..04 | — | `Phase-Evidence.md` §Phase 1: toolchain pinned (Node 24.19.0, typescript 6.0.3, @types/node 24.13.5); node:test chosen | IN-PROGRESS |
 
 ## 9. AGENTS.md / Execution Prompt operational obligations
 
 | ID | Governing source | Requirement (pointer) | Implementation | Test | Evidence | Status |
 |---|---|---|---|---|---|---|
-| TRP-AG-01 | AG §14; EP §8 | No push/publish/release/PR; no main modification; no host-wide installs; local commits permitted | process discipline | git log review | gate: no remote configured; main untouched | IN-PROGRESS (observed) |
+| TRP-AG-01 | AG §14; EP §8 | No push/publish/release/PR; no main modification; no host-wide installs; local commits permitted | process discipline | git log review | gate: no remote configured; main untouched; Phase 1: dev dependencies installed repository-locally only | IN-PROGRESS (observed) |
 | TRP-AG-02 | AG §15 list | Fifteen required test categories | mapped: unit (B), integration (D), adapter (F), authority-negative (E), stale/divergence/corruption (B5, D), fault (D6), idempotency (D9), concurrent (D4), fresh-agent (C), semantic (H), Router (F9), fast-lane (I), transport (L), install (G), Windows (M1), WSL (M2) | — | — | PLANNED |
 | TRP-AG-03 | AG §17 | Working method eight steps per subsystem | Plan §5/§6 | ledger updates per phase | — | PLANNED |
 | TRP-EP-01 | EP §4 | Protected files unmodified | none touched | `git diff --stat` on protected paths at each checkpoint | gate: verified clean | IN-PROGRESS (observed) |
 | TRP-EP-02 | EP §9 | `.gitattributes` preserved; `/mnt/c` not Linux proof | untouched; M2 check | — | — | PLANNED |
-| TRP-EP-03 | EP §10, §11 | Ledger and plan created and maintained | this file; plan | — | gate: created 2026-09-15 | IN-PROGRESS |
+| TRP-EP-03 | EP §10, §11 | Ledger and plan created and maintained | this file; plan; `Phase-Evidence.md` | — | gate: created 2026-09-15; Phase 1 exit update 2026-09-16 | IN-PROGRESS |
 
 ## 10. Repository-fact partition (ED-18, Director-requested correction)
 

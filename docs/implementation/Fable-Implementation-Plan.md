@@ -1,6 +1,6 @@
 # Fable Implementation Plan — TReePo v1
 
-**Status:** Initial Execution Gate artifact. Returned by the Director for one bounded correction (repository-fact self-invalidation, now ED-18) and corrected 2026-09-15. Awaiting Director review of the correction. No implementation code exists yet.
+**Status:** Approved by the Director on 2026-09-16 (gate complete; ED-16/ED-18 corrections applied). Implementation in progress from Phase 1; per-phase exits are recorded in `docs/implementation/Phase-Evidence.md`.
 
 **Authority:** This is a derived engineering document (AGENTS.md §1, authority level 10). It implements and explains the governing contracts; it does not replace, reinterpret, or outrank them. Where this plan and a governing document differ, the governing document controls and this plan is wrong.
 
@@ -87,6 +87,8 @@ Known gap: the WSL Ubuntu distro has **no Linux Node runtime** (see §9, decisio
 ### ED-02 Zero runtime dependencies; dev dependencies pinned exactly
 
 Only `typescript` (typecheck) is planned as a dev dependency, pinned with an exact version and a committed `package-lock.json`. Package manager: `npm` (bundled with Node; no corepack download). No global installs.
+
+*Phase 1 note:* `@types/node` is also pinned exactly as a dev-only dependency because `tsc` cannot typecheck `node:` built-ins without it; it is never loaded at runtime. Pinned versions: typescript 6.0.3, @types/node 24.13.5.
 
 ### ED-03 Language: TypeScript, executed via Node type-stripping, typechecked by `tsc --noEmit`
 
