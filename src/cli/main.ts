@@ -2,10 +2,12 @@
 // JSON. Exit codes: 0 success, 1 continuity/platform failure (fail closed),
 // 2 usage error.
 
+import { activateAdapter, grantAuthorization, installAdapter, revokeAuthorization } from "../adapters/index.ts";
 import { init, preflight, uninstall } from "../bootstrap/index.ts";
-import { isTreepoError } from "../core/errors.ts";
+import { loadAnchoredAuthz } from "../core/authz/index.ts";
+import { isTreepoError, UsageError } from "../core/errors.ts";
 import { selectPlatform } from "../platform/index.ts";
-import { openProject, recover, status } from "../harness/index.ts";
+import { adapters, current, observe, openProject, recover, routeIntent, status } from "../harness/index.ts";
 import { assertPinnedRuntime, PINNED_NODE_VERSION } from "./runtime-gate.ts";
 
 export interface CliIo {
@@ -53,12 +55,25 @@ commands:
   status                          validation + live repository facts + drift
   recover [--force-unlock]        recover interrupted publications
   uninstall                       remove provably TReePo-owned material only
+  adapter list                    distinct adapter states (available/installed/applicable/compatible/authorized/active)
+  adapter install <id> --requester <label>
+  adapter activate <id> --capability <name>[,<name>] --requester <label>
+  route --intent <text>           Router recommendation (confers no authorization)
+  authorize list
+  authorize grant --adapter <id> --capability <name>[,<name>] --grantor <label> --statement <text> --requester <label> [--expires-after <seqs>]
+  authorize revoke --grant <grantId> --grantor <label> --statement <text> --requester <label>
   version
 `;
 
+function required(flags: Map<string, string | true>, name: string): string {
+  const v = text(flags, name);
+  if (v === undefined || v.length === 0) throw new UsageError({ code: "MISSING_ARGUMENT", message: `--${name} is required`, details: { flag: name } });
+  return v;
+}
+
 export async function run(argv: readonly string[], io: CliIo): Promise<number> {
   assertPinnedRuntime();
-  const { command, flags } = parse(argv);
+  const { command, flags, positional } = parse(argv);
   const json = (value: unknown): void => io.out(`${JSON.stringify(value, null, 2)}\n`);
   try {
     switch (command) {
@@ -107,6 +122,64 @@ export async function run(argv: readonly string[], io: CliIo): Promise<number> {
       case "uninstall": {
         json(await uninstall(selectPlatform(), io.cwd));
         return 0;
+      }
+      case "adapter": {
+        const project = await openProject(io.cwd);
+        const [sub, id] = positional;
+        if (sub === "list") {
+          json(await adapters(project));
+          return 0;
+        }
+        if (sub === "install" && id !== undefined) {
+          const state = await current(project);
+          const facts = await observe(project);
+          json(await installAdapter(project, { adapterId: id, requester: required(flags, "requester"), expectedPredecessorId: state.current.id, expectedWorkingCopy: facts.workingCopy }));
+          return 0;
+        }
+        if (sub === "activate" && id !== undefined) {
+          const state = await current(project);
+          const facts = await observe(project);
+          json(await activateAdapter(project, { adapterId: id, capabilities: required(flags, "capability").split(","), requester: required(flags, "requester"), expectedPredecessorId: state.current.id, expectedWorkingCopy: facts.workingCopy }));
+          return 0;
+        }
+        io.err(USAGE);
+        return 2;
+      }
+      case "route": {
+        const project = await openProject(io.cwd);
+        json(await routeIntent(project, required(flags, "intent")));
+        return 0;
+      }
+      case "authorize": {
+        const project = await openProject(io.cwd);
+        const [sub] = positional;
+        if (sub === "list") {
+          json(await loadAnchoredAuthz(project.layout, await current(project)));
+          return 0;
+        }
+        const state = await current(project);
+        const facts = await observe(project);
+        if (sub === "grant") {
+          const expires = text(flags, "expires-after");
+          json(
+            await grantAuthorization(project, {
+              scope: { adapterId: required(flags, "adapter"), capabilities: required(flags, "capability").split(",") },
+              grantor: required(flags, "grantor"),
+              statement: required(flags, "statement"),
+              requester: required(flags, "requester"),
+              expectedPredecessorId: state.current.id,
+              expectedWorkingCopy: facts.workingCopy,
+              ...(expires === undefined ? {} : { expiresAfterSeqs: Number(expires) }),
+            }),
+          );
+          return 0;
+        }
+        if (sub === "revoke") {
+          json(await revokeAuthorization(project, { grantId: required(flags, "grant"), grantor: required(flags, "grantor"), statement: required(flags, "statement"), requester: required(flags, "requester"), expectedPredecessorId: state.current.id, expectedWorkingCopy: facts.workingCopy }));
+          return 0;
+        }
+        io.err(USAGE);
+        return 2;
       }
       default:
         io.err(`treepo: unknown command "${command}"\n${USAGE}`);

@@ -14,6 +14,19 @@ import type { Platform } from "../../platform/index.ts";
 export const JOURNAL_KIND = "treepo.journal";
 export const JOURNAL_SCHEMA_VERSION = 1;
 
+/**
+ * A change to an authoritative surface file (adapter registry entry or
+ * authorization record) made by this transaction. Recorded before it is
+ * applied so recovery can revert or complete it; `bytes` is base64.
+ */
+export interface JournalSurfaceChange {
+  /** Path relative to `.treepo/`, POSIX separators. */
+  readonly path: string;
+  readonly action: "add" | "remove";
+  readonly digest: string;
+  readonly bytes: string;
+}
+
 export interface JournalRecord {
   readonly schemaVersion: typeof JOURNAL_SCHEMA_VERSION;
   readonly kind: typeof JOURNAL_KIND;
@@ -24,6 +37,7 @@ export interface JournalRecord {
   readonly successorId: string;
   readonly successorSeq: number;
   readonly lockToken: string;
+  readonly surfaceChanges: readonly JournalSurfaceChange[];
 }
 
 export function journalDir(layout: Layout): string {
@@ -48,7 +62,17 @@ function shape(value: unknown, where: string): JournalRecord {
   if (typeof value !== "object" || value === null || Array.isArray(value)) bad("not an object");
   const r = value as Record<string, unknown>;
   const keys = Object.keys(r).sort().join(",");
-  if (keys !== "kind,lockToken,predecessorId,predecessorSeq,requestDigest,schemaVersion,successorId,successorSeq,txId") bad(`unexpected keys ${keys}`);
+  if (keys !== "kind,lockToken,predecessorId,predecessorSeq,requestDigest,schemaVersion,successorId,successorSeq,surfaceChanges,txId") bad(`unexpected keys ${keys}`);
+  const changes = r["surfaceChanges"];
+  if (!Array.isArray(changes)) bad("surfaceChanges must be an array");
+  for (const c of changes as unknown[]) {
+    if (typeof c !== "object" || c === null) bad("surfaceChanges entry");
+    const e = c as Record<string, unknown>;
+    if (Object.keys(e).sort().join(",") !== "action,bytes,digest,path") bad("surfaceChanges entry keys");
+    if (e["action"] !== "add" && e["action"] !== "remove") bad("surfaceChanges action");
+    if (typeof e["path"] !== "string" || e["path"].length === 0 || e["path"].includes("..") || e["path"].startsWith("/")) bad("surfaceChanges path");
+    if (!isSha256Hex(e["digest"]) || typeof e["bytes"] !== "string") bad("surfaceChanges digest/bytes");
+  }
   if (r["schemaVersion"] !== JOURNAL_SCHEMA_VERSION || r["kind"] !== JOURNAL_KIND) bad("wrong kind/schemaVersion");
   for (const k of ["txId", "predecessorId", "requestDigest", "successorId"]) if (!isSha256Hex(r[k])) bad(`${k} is not sha256 hex`);
   for (const k of ["predecessorSeq", "successorSeq"]) {

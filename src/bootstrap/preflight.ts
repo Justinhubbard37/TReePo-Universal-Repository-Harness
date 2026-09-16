@@ -24,6 +24,7 @@ export interface InstallState {
 export interface AdapterAvailability {
   readonly id: string;
   readonly category: "repository" | "workflow";
+  readonly available: boolean;
   readonly installed: boolean;
   readonly applicable: boolean;
   readonly compatible: boolean;
@@ -132,7 +133,17 @@ export async function preflight(platform: Platform, cwd: string): Promise<Prefli
           ]
         : [],
     adapters: [
-      { id: "treepo.repo.git", category: "repository", installed: true, applicable: true, compatible: true, recommended: true, authorized: false, active: install.status === "installed" },
+      {
+        id: "treepo.repo.git",
+        category: "repository",
+        available: true,
+        installed: install.status === "installed",
+        applicable: true,
+        compatible: true,
+        recommended: true,
+        authorized: false,
+        active: install.status === "installed",
+      },
     ],
   };
   return { repository, layout, install, validation, intake };

@@ -55,6 +55,52 @@ export async function computeSurfaceDigests(layout: Layout): Promise<SurfaceDige
   };
 }
 
+export interface SurfaceDelta {
+  /** Path relative to `.treepo/`, POSIX separators. */
+  readonly path: string;
+  readonly action: "add" | "remove";
+  readonly bytes: Uint8Array;
+}
+
+async function fileSetWith(dir: string, prefix: string, deltas: readonly SurfaceDelta[]): Promise<FileDigest[]> {
+  const map = new Map<string, string>();
+  let names: string[] = [];
+  try {
+    const entries = await fs.readdir(dir, { withFileTypes: true });
+    names = entries.filter((e) => e.isFile()).map((e) => e.name);
+  } catch (error) {
+    if ((error as { code?: unknown }).code !== "ENOENT") throw error;
+  }
+  for (const name of names) map.set(name, sha256Hex(await fs.readFile(nodePath.join(dir, name))));
+  for (const d of deltas) {
+    if (!d.path.startsWith(`${prefix}/`)) continue;
+    const name = d.path.slice(prefix.length + 1);
+    if (name.includes("/")) throw new ContinuityError({ code: "SURFACE_PATH_INVALID", message: `surface change path ${d.path} is not directly under ${prefix}`, details: { path: d.path } });
+    if (d.action === "add") map.set(name, sha256Hex(d.bytes));
+    else map.delete(name);
+  }
+  return [...map.entries()].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)).map(([name, digest]) => ({ name, digest }));
+}
+
+/**
+ * The surface digests that will hold after `deltas` are applied, computed
+ * without touching disk. Only `adapters/*` and `state/authz/*` may change
+ * through a transition; the owner marker never does.
+ */
+export async function computeSurfaceDigestsWith(layout: Layout, deltas: readonly SurfaceDelta[]): Promise<SurfaceDigests> {
+  for (const d of deltas) {
+    if (!d.path.startsWith("adapters/") && !d.path.startsWith("state/authz/")) {
+      throw new ContinuityError({ code: "SURFACE_PATH_INVALID", message: `surface change path ${d.path} is not an adapter registry entry or authorization record`, details: { path: d.path } });
+    }
+  }
+  const base = await computeSurfaceDigests(layout);
+  return {
+    ownerDigest: base.ownerDigest,
+    adapterRegistryDigest: digestOf(await fileSetWith(layout.adaptersDir, "adapters", deltas)),
+    authzSetDigest: digestOf(await fileSetWith(layout.authzDir, "state/authz", deltas)),
+  };
+}
+
 export function surfaceDigestsEqual(a: SurfaceDigests, b: SurfaceDigests): boolean {
   return a.ownerDigest === b.ownerDigest && a.adapterRegistryDigest === b.adapterRegistryDigest && a.authzSetDigest === b.authzSetDigest;
 }

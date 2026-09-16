@@ -14,13 +14,14 @@ import type { Layout } from "../state/layout.ts";
 import type { StateObject, SurfaceDigests, WorkingCopyFacts } from "../state/schema.ts";
 import { identify, readObject, writeCurrent, writeObject, type StoredObject } from "../state/store.ts";
 import { checkSuccession } from "../state/successor.ts";
-import { computeSurfaceDigests } from "../state/surface.ts";
+import { computeSurfaceDigestsWith, type SurfaceDelta } from "../state/surface.ts";
 import { requireValidState, type ValidatedState } from "../state/validate.ts";
+import { sha256Hex } from "../hash.ts";
 import type { Platform } from "../../platform/index.ts";
 import { findCommitted } from "./idempotency.ts";
 import { transactionId, writeJournal, removeJournal, type JournalRecord } from "./journal.ts";
 import { acquireLock } from "./lock.ts";
-import { recoverIncomplete } from "./recover.ts";
+import { applySurfaceChanges, recoverIncomplete } from "./recover.ts";
 
 export type PublishPhase =
   | "lock"
@@ -54,6 +55,8 @@ export interface PublishRequest {
   readonly observeWorkingCopy: () => Promise<WorkingCopyFacts>;
   /** Deterministic successor construction. Must use `buildSuccessor` with the provided facts. */
   readonly build: (context: BuildContext) => StateObject;
+  /** Authoritative surface files this transition adds or removes (adapter registry entries, authorization records). */
+  readonly surfaceChanges?: readonly SurfaceDelta[];
   readonly observer?: (phase: PublishPhase) => void;
 }
 
@@ -110,7 +113,8 @@ export async function publishTransition(platform: Platform, layout: Layout, requ
         details: { expected: request.expectedWorkingCopy, live },
       });
     }
-    const surfaceDigests = await computeSurfaceDigests(layout);
+    const deltas = request.surfaceChanges ?? [];
+    const surfaceDigests = await computeSurfaceDigestsWith(layout, deltas);
 
     note("build");
     const successor = request.build({ predecessor: state.current, chain: state.chain, workingCopy: live, surfaceDigests, requestDigest: request.requestDigest });
@@ -133,10 +137,12 @@ export async function publishTransition(platform: Platform, layout: Layout, requ
       successorId,
       successorSeq: successor.seq,
       lockToken: lock.info.token,
+      surfaceChanges: deltas.map((d) => ({ path: d.path, action: d.action, digest: sha256Hex(d.bytes), bytes: Buffer.from(d.bytes).toString("base64") })),
     };
     await writeJournal(platform, layout, journal);
 
     note("stage");
+    await applySurfaceChanges(platform, layout, journal.surfaceChanges);
     await writeObject(platform, layout, successor, "object");
     await platform.fsyncDir(layout.objectsDir, { label: "objects" });
 

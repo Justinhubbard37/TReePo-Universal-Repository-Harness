@@ -18,6 +18,10 @@ import { writeCurrent, writeObject } from "../core/state/store.ts";
 import { computeSurfaceDigests } from "../core/state/surface.ts";
 import { requireValidState } from "../core/state/validate.ts";
 import { acquireLock } from "../core/tx/lock.ts";
+import { ACTIVATION_NAMESPACE, ADAPTER_API, CORE_API } from "../adapters/api.ts";
+import { encodeInstalledRecord } from "../adapters/registry.ts";
+import type { CanonicalValue } from "../core/canon.ts";
+import { gitAdapterManifest } from "../adapters/repo/git/manifest.ts";
 import type { Platform } from "../platform/index.ts";
 import { CORE_VERSION, encodeOwner, OWNER_KIND, OWNER_SCHEMA_VERSION } from "./owner.ts";
 import { preflight } from "./preflight.ts";
@@ -94,6 +98,15 @@ export async function init(platform: Platform, cwd: string, request: InitRequest
   });
   await writeAuthzRecord(platform, layout, grant, "authz");
 
+  // The Git repository/environment adapter (established minimum) is installed at genesis and
+  // active for its single non-consequential capability. Installation confers no authority.
+  await platform.writeFileAtomic(
+    `${layout.adaptersDir}/${gitAdapterManifest.id}.json`,
+    encodeInstalledRecord({ adapterApi: ADAPTER_API, coreApi: CORE_API, id: gitAdapterManifest.id, version: gitAdapterManifest.version, installedAtSeq: 0 }),
+    { label: "adapters" },
+  );
+  const activation: CanonicalValue = { [gitAdapterManifest.id]: { capabilities: ["observe"], sinceSeq: 0 } };
+
   const lock = await acquireLock(platform, layout);
   try {
     const facts = await observeRepository(platform, layout.root);
@@ -113,6 +126,7 @@ export async function init(platform: Platform, cwd: string, request: InitRequest
       position: { label: "genesis", detail: "" },
       accepted,
       authzRefs: [grant.grantId],
+      adapter: { [ACTIVATION_NAMESPACE]: activation },
     });
     const { id } = await writeObject(platform, layout, genesis, "object");
     await platform.fsyncDir(layout.objectsDir, { label: "objects" });

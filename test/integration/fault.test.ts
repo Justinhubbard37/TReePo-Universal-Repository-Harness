@@ -106,6 +106,49 @@ describe("fault injection at every publication boundary", () => {
     });
   }
 
+  it("surface changes are journaled: an interruption after a surface file is added is rolled back (file removed) or rolled forward (file kept) exactly like the object", async () => {
+    const { canonicalBytes: canon } = await import("../../src/core/canon.ts");
+    const { computeSurfaceDigests, buildSuccessor } = await import("../../src/core/state/index.ts");
+    const { publishTransition } = await import("../../src/core/tx/index.ts");
+    const { selectPlatform } = await import("../../src/platform/index.ts");
+    const { FACTS } = await import("../helpers/state-fixture.ts");
+    for (const [label, expect] of [["write:object", "rolled-back"], ["write:CURRENT", "rolled-forward"]] as const) {
+      await withTempDir(async (dir) => {
+        const f = await createTreepoRoot(dir);
+        const g = await publishGenesis(f);
+        const bytes = canon({ adapterApi: "1", coreApi: "1", id: "x", installedAtSeq: 1, version: "1" });
+        const surfacePath = path.join(f.layout.adaptersDir, "x.json");
+        const attempt = (platform: ReturnType<typeof selectPlatform>) =>
+          publishTransition(platform, f.layout, {
+            expectedPredecessorId: g.id,
+            expectedWorkingCopy: FACTS.workingCopy,
+            requestDigest: sha256Hex("install-x"),
+            observeWorkingCopy: async () => FACTS.workingCopy,
+            surfaceChanges: [{ path: "adapters/x.json", action: "add", bytes }],
+            build: (ctx) => buildSuccessor({ predecessor: ctx.predecessor, transition: { name: "install", requestDigest: ctx.requestDigest, requester: "t", authzRefs: [], supersedes: [] }, repoFacts: { workingCopy: ctx.workingCopy }, surfaceDigests: ctx.surfaceDigests, nextAction: ctx.predecessor.object.core.nextAction, position: ctx.predecessor.object.core.position }),
+          });
+        await assert.rejects(attempt(selectPlatform({ faults: failAt(label) })), (e: unknown) => errorCode(e) === "INJECTED_FAULT");
+        await fs.rm(lockFile(f.layout));
+        const lock = await acquireLock(f.platform, f.layout);
+        const report = await recoverIncomplete(f.platform, f.layout, lock);
+        await lock.release();
+        assert.equal(report.actions[0]?.outcome, expect);
+        const post = await requireValidState(f.layout);
+        const live = await computeSurfaceDigests(f.layout);
+        assert.deepEqual(live, post.current.object.surfaceDigests, "surface on disk matches what the current state binds");
+        if (expect === "rolled-back") {
+          await assert.rejects(fs.access(surfacePath));
+          assert.equal(post.current.id, g.id);
+        } else {
+          assert.deepEqual([...(await fs.readFile(surfacePath))], [...bytes]);
+          assert.equal(post.current.object.seq, 1);
+        }
+        const again = await attempt(f.platform);
+        assert.equal(again.status, expect === "rolled-back" ? "published" : "already-committed");
+      });
+    }
+  });
+
   it("recovery refuses ambiguous bytes at the staged path and leaves them in place (D.8)", async () => {
     await withTempDir(async (dir) => {
       const f = await createTreepoRoot(dir);

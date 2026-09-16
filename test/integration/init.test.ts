@@ -25,7 +25,7 @@ describe("initialization / adoption", () => {
       assert.equal(p.intake.knownFacts.head, await repo.git(["rev-parse", "HEAD"]));
       assert.equal(p.intake.knownFacts.branch, "main");
       assert.deepEqual(p.intake.requiredHumanInputs.map((h) => h.field), ["requester", "authorization.grantor", "authorization.statement"]);
-      assert.deepEqual(p.intake.adapters.map((a) => [a.id, a.installed, a.applicable, a.authorized, a.active]), [["treepo.repo.git", true, true, false, false]]);
+      assert.deepEqual(p.intake.adapters.map((a) => [a.id, a.available, a.installed, a.applicable, a.authorized, a.active]), [["treepo.repo.git", true, false, true, false, false]]);
       assert.equal(await repoContentDigest(repo.root), before);
       assert.equal(await repo.git(["status", "--porcelain=v2"]), statusBefore);
       await assert.rejects(fs.access(path.join(repo.root, ".treepo")));

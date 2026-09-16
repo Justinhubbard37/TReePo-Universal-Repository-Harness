@@ -7,7 +7,10 @@ import { observeRepository, type RepositoryFacts } from "../adapters/repo/git/in
 import { ContinuityError } from "../core/errors.ts";
 import { layoutFor, type Layout } from "../core/state/layout.ts";
 import type { StateObject, WorkingCopyFacts } from "../core/state/schema.ts";
+import type { SurfaceDelta } from "../core/state/surface.ts";
 import { requireValidState, validateAuthoritativeState, type ValidatedState, type ValidationReport } from "../core/state/validate.ts";
+import { loadAnchoredAuthz } from "../core/authz/index.ts";
+import { adapterStatuses, createRegistry, readInstalledRecords, route, type AdapterImplementation, type AdapterStatus, type Registry, type RouteResult } from "../adapters/index.ts";
 import { acquireLock, clearStaleLock, type ClearStaleLockResult } from "../core/tx/lock.ts";
 import { publishTransition, type BuildContext, type PublishPhase, type PublishResult } from "../core/tx/publish.ts";
 import { recoverIncomplete, type RecoveryReport } from "../core/tx/recover.ts";
@@ -18,9 +21,15 @@ export interface Project {
   readonly platform: Platform;
   readonly layout: Layout;
   readonly install: InstallState;
+  readonly registry: Registry;
 }
 
-export async function openProject(cwd: string, options: SelectPlatformOptions = {}): Promise<Project> {
+export interface OpenProjectOptions extends SelectPlatformOptions {
+  /** Test-only: additional adapter implementations to make available. */
+  readonly extraAdapters?: readonly AdapterImplementation[];
+}
+
+export async function openProject(cwd: string, options: OpenProjectOptions = {}): Promise<Project> {
   const platform = selectPlatform(options);
   const facts = await observeRepository(platform, cwd);
   const layout = layoutFor(facts.root);
@@ -28,7 +37,19 @@ export async function openProject(cwd: string, options: SelectPlatformOptions = 
   if (install.status !== "installed") {
     throw new ContinuityError({ code: "NOT_INITIALIZED", message: `TReePo is not initialized here (${install.reason})`, details: { root: layout.root, status: install.status } });
   }
-  return { platform, layout, install };
+  return { platform, layout, install, registry: createRegistry(options.extraAdapters ?? []) };
+}
+
+/** Distinct adapter states for this project (nothing is installed, authorized, or activated here). */
+export async function adapters(project: Project): Promise<AdapterStatus[]> {
+  const state = await requireValidState(project.layout);
+  const [facts, installed, authz] = await Promise.all([observe(project), readInstalledRecords(project.layout), loadAnchoredAuthz(project.layout, state)]);
+  return adapterStatuses({ registry: project.registry, installed, facts, state, authz });
+}
+
+/** Router recommendation for a plain-language intent; confers nothing. */
+export async function routeIntent(project: Project, intent: string): Promise<RouteResult> {
+  return route(intent, project.registry, await adapters(project));
 }
 
 export function observe(project: Project): Promise<RepositoryFacts> {
@@ -62,6 +83,7 @@ export interface GovernedTransition {
   readonly expectedWorkingCopy: WorkingCopyFacts;
   readonly requestDigest: string;
   readonly build: (context: BuildContext) => StateObject;
+  readonly surfaceChanges?: readonly SurfaceDelta[];
   readonly observer?: (phase: PublishPhase) => void;
 }
 
@@ -73,6 +95,7 @@ export function publish(project: Project, transition: GovernedTransition): Promi
     requestDigest: transition.requestDigest,
     observeWorkingCopy: async () => (await observe(project)).workingCopy,
     build: transition.build,
+    ...(transition.surfaceChanges === undefined ? {} : { surfaceChanges: transition.surfaceChanges }),
     ...(transition.observer === undefined ? {} : { observer: transition.observer }),
   });
 }

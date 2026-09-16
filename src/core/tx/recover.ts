@@ -18,8 +18,57 @@ import { decodeObject, readCurrent, readObject, writeCurrent } from "../state/st
 import { checkSuccession } from "../state/successor.ts";
 import { requireValidState } from "../state/validate.ts";
 import type { Platform } from "../../platform/index.ts";
-import { listJournals, removeJournal, type JournalRecord } from "./journal.ts";
+import { listJournals, removeJournal, type JournalRecord, type JournalSurfaceChange } from "./journal.ts";
 import type { LockHandle } from "./lock.ts";
+
+function surfacePath(layout: Layout, change: JournalSurfaceChange): string {
+  return nodePath.join(layout.treepoDir, ...change.path.split("/"));
+}
+
+async function readIfExists(path: string): Promise<Uint8Array | undefined> {
+  try {
+    return await fs.readFile(path);
+  } catch (error) {
+    if ((error as { code?: unknown }).code === "ENOENT") return undefined;
+    throw error;
+  }
+}
+
+/** Undo this transaction's surface changes: remove what it added (only if the bytes are still its own) and restore what it removed. */
+export async function revertSurfaceChanges(platform: Platform, layout: Layout, changes: readonly JournalSurfaceChange[]): Promise<void> {
+  for (const change of changes) {
+    const path = surfacePath(layout, change);
+    const existing = await readIfExists(path);
+    if (change.action === "add") {
+      if (existing === undefined) continue;
+      if (sha256Hex(existing) !== change.digest) throw ambiguous("surface file added by an interrupted transaction no longer holds its bytes; not touched", { path });
+      await platform.removeFile(path, { label: "surface" });
+    } else if (existing === undefined) {
+      await platform.writeFileAtomic(path, Buffer.from(change.bytes, "base64"), { label: "surface" });
+    } else if (sha256Hex(existing) !== change.digest) {
+      throw ambiguous("surface file removed by an interrupted transaction has been replaced with foreign bytes; not touched", { path });
+    }
+  }
+}
+
+/** Complete this transaction's surface changes idempotently. */
+export async function applySurfaceChanges(platform: Platform, layout: Layout, changes: readonly JournalSurfaceChange[]): Promise<void> {
+  for (const change of changes) {
+    const path = surfacePath(layout, change);
+    const existing = await readIfExists(path);
+    if (change.action === "add") {
+      if (existing !== undefined) {
+        if (sha256Hex(existing) !== change.digest) throw ambiguous("surface file to be added already exists with different bytes; not touched", { path });
+        continue;
+      }
+      await fs.mkdir(nodePath.dirname(path), { recursive: true });
+      await platform.writeFileAtomic(path, Buffer.from(change.bytes, "base64"), { label: "surface" });
+    } else if (existing !== undefined) {
+      if (sha256Hex(existing) !== change.digest) throw ambiguous("surface file to be removed holds different bytes; not touched", { path });
+      await platform.removeFile(path, { label: "surface" });
+    }
+  }
+}
 
 export type RecoveryOutcome = "completed" | "rolled-forward" | "rolled-back";
 
@@ -55,7 +104,7 @@ async function recoverOne(platform: Platform, layout: Layout, rec: JournalRecord
   const pointer = await readCurrent(layout);
 
   if (pointer.stateId === rec.successorId) {
-    // Pointer already advanced: only journal completion was interrupted.
+    // Pointer already advanced: surface changes were applied before it; only journal completion was interrupted.
     await requireValidState(layout);
     await removeTemps(platform, layout.stateDir, ".CURRENT.");
     await removeJournal(platform, layout, rec.txId);
@@ -75,7 +124,8 @@ async function recoverOne(platform: Platform, layout: Layout, rec: JournalRecord
   }
 
   if (stagedBytes === undefined) {
-    // Nothing durable was published: restore the exact predecessor by removing this transaction's temp files.
+    // Nothing durable was published: restore the exact predecessor by reverting surface changes and removing temp files.
+    await revertSurfaceChanges(platform, layout, rec.surfaceChanges);
     await removeTemps(platform, layout.objectsDir, `.${rec.successorId}.json.`);
     await removeTemps(platform, layout.stateDir, ".CURRENT.");
     await removeJournal(platform, layout, rec.txId);
@@ -98,13 +148,15 @@ async function recoverOne(platform: Platform, layout: Layout, rec: JournalRecord
   }
   if (!valid) {
     await platform.removeFile(stagedPath, { label: "recovery-staged" });
+    await revertSurfaceChanges(platform, layout, rec.surfaceChanges);
     await removeTemps(platform, layout.objectsDir, `.${rec.successorId}.json.`);
     await removeTemps(platform, layout.stateDir, ".CURRENT.");
     await removeJournal(platform, layout, rec.txId);
     return { txId: rec.txId, outcome: "rolled-back", currentStateId: rec.predecessorId };
   }
 
-  // Roll forward: complete the intended valid state, then prove it.
+  // Roll forward: complete the intended valid state (surface changes, then pointer), then prove it.
+  await applySurfaceChanges(platform, layout, rec.surfaceChanges);
   await removeTemps(platform, layout.stateDir, ".CURRENT.");
   await writeCurrent(platform, layout, { seq: rec.successorSeq, stateId: rec.successorId }, "CURRENT");
   await platform.fsyncDir(layout.stateDir, { label: "state" });
@@ -115,6 +167,7 @@ async function recoverOne(platform: Platform, layout: Layout, rec: JournalRecord
     await writeCurrent(platform, layout, { seq: rec.predecessorSeq, stateId: rec.predecessorId }, "CURRENT");
     await platform.fsyncDir(layout.stateDir, { label: "state" });
     await platform.removeFile(stagedPath, { label: "recovery-staged" });
+    await revertSurfaceChanges(platform, layout, rec.surfaceChanges);
     await removeJournal(platform, layout, rec.txId);
     throw new ContinuityError({
       code: "RECOVERY_ROLLED_BACK",

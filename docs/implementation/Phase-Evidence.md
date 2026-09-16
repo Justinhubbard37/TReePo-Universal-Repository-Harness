@@ -161,3 +161,37 @@ After every recovery an exact retry is idempotent for the rolled-forward/complet
 - No workflow adapter exists yet; the genesis next action states generically that a workflow adapter must be selected through the Router before governed work begins.
 - Uninstall does not run `git rm`; if `.treepo/state` was committed, Git will show the removed files as deletions for the user to commit. TReePo performs no consequential repository action on the user's behalf.
 - The Windows-only limits from Phases 1 and 3 (no directory fsync, no per-file ACL restriction) still apply.
+
+---
+
+## Phase 5 — S6 adapter framework, authorization, Router
+
+| Item | Value |
+|---|---|
+| Date (UTC) | 2026-09-16 |
+| Parent commit | `4e64a81` (Phase 4 checkpoint) |
+| Environment | Windows 11 (win32 x64), NTFS local working copy; Node.js 24.19.0; Git 2.54.0.windows.1; typescript 6.0.3 |
+| Commands | `npm run typecheck` (exit 0); `npm test` (exit 0) |
+| Test totals | 150 tests, 32 suites: **150 pass, 0 fail, 0 skipped** (22 new in this phase); first run green |
+| Evidence runs | one capture, authoritative; see `evidence/phase-5/INDEX.md` (ignored; delivered outside the repository) |
+
+### Delivered
+
+- **Surface-changing transitions.** The journal now records `surfaceChanges` (adds/removes of adapter registry entries and authorization records, with digests and bytes). Publication applies them after the journal intent and before staging the object; the successor's surface digests are computed in memory ahead of time so the final validation must match the disk. Recovery reverts them on rollback (removing only files whose bytes still match the journal) and completes them on roll-forward. Fault injection covers both directions.
+- `src/core/authz/eligibility.ts` — ED-16 rules: a record confers authority only if it belongs to the set anchored by the current state (`AUTHZ_UNANCHORED` otherwise), its scope covers the capability, it has been issued, it has not expired, and no anchored record revokes it; a revocation record grants nothing; the lowest grant id is chosen deterministically.
+- `src/adapters/api.ts` — adapter API v1: declarative manifests (id, category, version, `adapterApi`/`coreApi`, capabilities with a consequence class, prerequisites, Router intents); adapter implementations may only answer a read-only prerequisite question. The activation record lives in the state object's `treepo.activation` namespace.
+- `src/adapters/registry.ts` — first-party registry, per-project installed records under `.treepo/adapters/` (surface-bound), and deterministic evaluation of the distinct states: available, installed, applicable, compatible, recommended, authorized capabilities, active capabilities.
+- `src/adapters/router.ts` — deterministic keyword interpretation over declared intents; every result carries `authorization: "not-conferred-by-router"`; nothing is installed, authorized, or activated by routing.
+- `src/adapters/activation.ts` — install (a governed transition adding the registry entry; confers no authority) and activation through the eight Adapter Contract §4 layers in order; non-consequential capabilities activate automatically, consequential ones require an eligible anchored grant recorded in `transition.authzRefs`; unknown adapters and undeclared capabilities are reported with no side effect.
+- `src/adapters/authorize.ts` — grant and revoke as governed transitions that add a record and rebind the authorization-set digest; the revoke record supersedes the accepted item of the grant it revokes.
+- The Git adapter is installed and active for `observe` at genesis with no authority. Preflight now distinguishes `available` from `installed`.
+- CLI: `adapter list|install|activate`, `route --intent`, `authorize list|grant|revoke`.
+- Tests: `authz-eligibility.test.ts`, `adapter-api-surface.test.ts` (static), `authz.test.ts` (E.1–E.7 plus anchored-grant cases), `activation.test.ts` (F.4–F.10, activation order, adapter failure, Router), surface-change fault cases in `fault.test.ts`.
+
+### Honest limits recorded
+
+- **Human authority is a labelled record, not an authenticated identity.** A grant records a grantor label and statement; TReePo verifies structure, digest, scope, sequence, revocation, and anchoring. It cannot tell a human from an agent typing the grant command; cryptographic human authentication is deferred by the baseline (Definition Baseline DEFERRED list), and the mechanism relies on separation of the grant act from the act it authorizes plus the audit trail.
+- **Grant and revoke transitions are not themselves gated by a prior grant.** They are the explicit human act the contracts require to precede consequential authority; gating them would be circular. They are governed transitions with full validation, lock, journal, and provenance.
+- **Expiry is sequence-based** (no wall-clock time anywhere in authoritative state), so an expiry of "N transitions" is exact and deterministic but is not a calendar deadline.
+- **F.3 is intentionally not claimed:** no workflow adapter exists yet (Phase 6). The static one-workflow-adapter check still asserts "at most one".
+- Adapter statuses are computed from the current state and live facts on demand; there is no cached adapter state anywhere outside authoritative objects and the registry files.
