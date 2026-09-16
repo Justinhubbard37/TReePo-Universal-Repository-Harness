@@ -19,8 +19,9 @@ import { computeSurfaceDigests } from "../core/state/surface.ts";
 import { requireValidState } from "../core/state/validate.ts";
 import { acquireLock } from "../core/tx/lock.ts";
 import { ACTIVATION_NAMESPACE, ADAPTER_API, CORE_API } from "../adapters/api.ts";
-import { encodeInstalledRecord } from "../adapters/registry.ts";
+import { createRegistry, encodeInstalledRecord } from "../adapters/registry.ts";
 import type { CanonicalValue } from "../core/canon.ts";
+import { orient, writeAgentEntry } from "../orient/index.ts";
 import { gitAdapterManifest } from "../adapters/repo/git/manifest.ts";
 import type { Platform } from "../platform/index.ts";
 import { CORE_VERSION, encodeOwner, OWNER_KIND, OWNER_SCHEMA_VERSION } from "./owner.ts";
@@ -133,6 +134,7 @@ export async function init(platform: Platform, cwd: string, request: InitRequest
     await writeCurrent(platform, layout, { seq: 0, stateId: id }, "CURRENT");
     await platform.fsyncDir(layout.stateDir, { label: "state" });
     await requireValidState(layout);
+    await writeAgentEntry(platform, layout, await orient(platform, layout, createRegistry()));
     return { status: "initialized", root: layout.root, installId, stateId: id, grantId: grant.grantId };
   } finally {
     await lock.release();

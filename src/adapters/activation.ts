@@ -63,7 +63,8 @@ function fail(code: string, message: string, details: Record<string, unknown>): 
   throw new ContinuityError({ code, message, details });
 }
 
-async function resolveImplementation(env: Env, adapterId: string, note: (s: ActivationLayer) => void, state: ValidatedState, facts: RepositoryFacts): Promise<AdapterImplementation> {
+/** Layers 2–5: available, installed, compatible, environment and workflow prerequisites. */
+export async function resolveInstalledAdapter(env: Env, adapterId: string, note: (s: ActivationLayer) => void, state: ValidatedState, facts: RepositoryFacts): Promise<AdapterImplementation> {
   note("2:installed");
   const impl = env.registry.find(adapterId);
   if (impl === undefined) fail("ADAPTER_UNAVAILABLE", `adapter ${adapterId} is not available in this core`, { adapterId });
@@ -91,7 +92,7 @@ export async function activateAdapter(env: Env, request: ActivationRequest): Pro
   note("1:core-integrity");
   const state = await requireValidState(env.layout);
   const facts = await observeRepository(env.platform, env.layout.root);
-  const impl = await resolveImplementation(env, request.adapterId, note, state, facts);
+  const impl = await resolveInstalledAdapter(env, request.adapterId, note, state, facts);
 
   note("7:declared-capabilities");
   const declared = new Map(impl.manifest.capabilities.map((c) => [c.name, c.consequence] as [string, Consequence]));

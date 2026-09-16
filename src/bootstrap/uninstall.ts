@@ -27,7 +27,7 @@ function isOwnedRelativePath(rel: string, isDir: boolean): boolean {
   if (isDir) {
     return ["state", "state/objects", "state/authz", "adapters", "runtime"].includes(rel) || rel.startsWith("runtime/");
   }
-  if (parts.length === 1) return ["OWNER", ".gitignore", ".gitattributes"].includes(rel);
+  if (parts.length === 1) return ["OWNER", ".gitignore", ".gitattributes", "AGENT-ENTRY.md"].includes(rel);
   if (rel.startsWith("runtime/")) return true;
   if (parts.length === 2 && parts[0] === "state") return parts[1] === "CURRENT" || CURRENT_TEMP.test(parts[1]!);
   if (parts.length === 3 && parts[0] === "state" && parts[1] === "objects") return OBJECT.test(parts[2]!) || OBJECT_TEMP.test(parts[2]!);

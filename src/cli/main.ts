@@ -2,12 +2,15 @@
 // JSON. Exit codes: 0 success, 1 continuity/platform failure (fail closed),
 // 2 usage error.
 
-import { activateAdapter, grantAuthorization, installAdapter, revokeAuthorization } from "../adapters/index.ts";
+import { activateAdapter, CONTINUITY_ID, grantAuthorization, installAdapter, revokeAuthorization, runWorkflowTransition } from "../adapters/index.ts";
 import { init, preflight, uninstall } from "../bootstrap/index.ts";
 import { loadAnchoredAuthz } from "../core/authz/index.ts";
+import type { CanonicalValue } from "../core/canon.ts";
 import { isTreepoError, UsageError } from "../core/errors.ts";
+import { sha256Hex } from "../core/hash.ts";
+import { renderOrientation } from "../orient/index.ts";
 import { selectPlatform } from "../platform/index.ts";
-import { adapters, current, observe, openProject, recover, routeIntent, status } from "../harness/index.ts";
+import { adapters, current, observe, openProject, orientProject, recover, refreshAgentEntry, routeIntent, status } from "../harness/index.ts";
 import { assertPinnedRuntime, PINNED_NODE_VERSION } from "./runtime-gate.ts";
 
 export interface CliIo {
@@ -62,8 +65,56 @@ commands:
   authorize list
   authorize grant --adapter <id> --capability <name>[,<name>] --grantor <label> --statement <text> --requester <label> [--expires-after <seqs>]
   authorize revoke --grant <grantId> --grantor <label> --statement <text> --requester <label>
+  orient [--text] [--write-entry] fresh-agent orientation from durable state only
+  begin --work <label> --next <text> --requester <label>
+  progress --done <id>[=<note>] [--done ...] --next <text> --requester <label>
+  checkpoint --label <text> [--next <text>] --requester <label>
+  pause --next <text> --requester <label>
+  resume [--next <text>] --requester <label>
+  handoff --to <label> [--next <text>] --requester <label>
   version
 `;
+
+const WORKFLOW_ACTIONS = ["begin", "progress", "checkpoint", "pause", "resume", "handoff"] as const;
+
+function allValues(argv: readonly string[], name: string): string[] {
+  const out: string[] = [];
+  for (let i = 0; i < argv.length; i += 1) {
+    if (argv[i] === `--${name}` && i + 1 < argv.length) out.push(argv[i + 1]!);
+    else if (argv[i]!.startsWith(`--${name}=`)) out.push(argv[i]!.slice(name.length + 3));
+  }
+  return out;
+}
+
+function workflowInput(action: string, argv: readonly string[], flags: Map<string, string | true>): CanonicalValue {
+  const input: Record<string, CanonicalValue> = {};
+  const next = text(flags, "next");
+  if (next !== undefined) input["nextAction"] = next;
+  const prereq = text(flags, "prereq");
+  if (prereq !== undefined) input["prerequisites"] = prereq.split(",").filter((p) => p.length > 0);
+  switch (action) {
+    case "begin":
+      input["work"] = required(flags, "work");
+      break;
+    case "progress":
+      input["completed"] = allValues(argv, "done").map((d) => {
+        const eq = d.indexOf("=");
+        const id = eq === -1 ? d : d.slice(0, eq);
+        const note = eq === -1 ? d : d.slice(eq + 1);
+        return { id, digest: sha256Hex(note) };
+      });
+      break;
+    case "checkpoint":
+      input["label"] = required(flags, "label");
+      break;
+    case "handoff":
+      input["to"] = required(flags, "to");
+      break;
+    default:
+      break;
+  }
+  return input;
+}
 
 function required(flags: Map<string, string | true>, name: string): string {
   const v = text(flags, name);
@@ -148,6 +199,35 @@ export async function run(argv: readonly string[], io: CliIo): Promise<number> {
       case "route": {
         const project = await openProject(io.cwd);
         json(await routeIntent(project, required(flags, "intent")));
+        return 0;
+      }
+      case "orient": {
+        const project = await openProject(io.cwd);
+        const o = flags.get("write-entry") === true ? (await refreshAgentEntry(project)).orientation : await orientProject(project);
+        if (flags.get("text") === true) io.out(renderOrientation(o));
+        else json(o);
+        return o.ok ? 0 : 1;
+      }
+      case "begin":
+      case "progress":
+      case "checkpoint":
+      case "pause":
+      case "resume":
+      case "handoff": {
+        const project = await openProject(io.cwd);
+        const state = await current(project);
+        const facts = await observe(project);
+        const action = command as (typeof WORKFLOW_ACTIONS)[number];
+        const outcome = await runWorkflowTransition(project, {
+          adapterId: CONTINUITY_ID,
+          action,
+          input: workflowInput(action, argv, flags),
+          requester: required(flags, "requester"),
+          expectedPredecessorId: state.current.id,
+          expectedWorkingCopy: facts.workingCopy,
+        });
+        await refreshAgentEntry(project);
+        json({ result: outcome.result, capability: outcome.plan.capability, authzRefs: outcome.authzRefs, nextAction: outcome.plan.nextAction, position: outcome.plan.position });
         return 0;
       }
       case "authorize": {

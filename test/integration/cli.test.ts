@@ -57,6 +57,32 @@ describe("treepo CLI", () => {
       assert.equal(rec.code, 0);
       assert.deepEqual((rec.json as { recovery: { actions: unknown[] } }).recovery.actions, []);
 
+      // Workflow through the CLI: install, grant, activate, begin, progress, pause, orient.
+      const inst = await treepo(repo.root, "adapter", "install", "treepo.workflow.continuity", "--requester", "human");
+      assert.equal(inst.code, 0, JSON.stringify(inst.json));
+      const grant = await treepo(repo.root, "authorize", "grant", "--adapter", "treepo.workflow.continuity", "--capability", "begin,progress,pause", "--grantor", "Human", "--statement", "ok", "--requester", "human");
+      assert.equal(grant.code, 0, JSON.stringify(grant.json));
+      const act = await treepo(repo.root, "adapter", "activate", "treepo.workflow.continuity", "--capability", "orient,begin,progress,pause", "--requester", "human");
+      assert.equal(act.code, 0, JSON.stringify(act.json));
+      const begin = await treepo(repo.root, "begin", "--work", "cli task", "--next", "write tests", "--requester", "agent");
+      assert.equal(begin.code, 0, JSON.stringify(begin.json));
+      const prog = await treepo(repo.root, "progress", "--done", "tests=wrote 3 tests", "--next", "run them", "--requester", "agent");
+      assert.equal(prog.code, 0, JSON.stringify(prog.json));
+      const pause = await treepo(repo.root, "pause", "--next", "run the tests", "--requester", "agent");
+      assert.equal(pause.code, 0, JSON.stringify(pause.json));
+      const resumeDenied = await treepo(repo.root, "resume", "--requester", "agent");
+      assert.equal(resumeDenied.code, 1);
+      assert.equal((resumeDenied.json as { error: { code: string } }).error.code, "ADAPTER_NOT_ACTIVE");
+      const orient = await treepo(repo.root, "orient", "--write-entry");
+      assert.equal(orient.code, 0);
+      const o = orient.json as { ok: boolean; completed: { id: string }[]; nextAction: { description: string }; position: { label: string } };
+      assert.equal(o.ok, true);
+      assert.deepEqual(o.completed.map((c) => c.id), ["tests"]);
+      assert.equal(o.nextAction.description, "run the tests");
+      assert.equal(o.position.label, "paused");
+      const text = await treepo(repo.root, "orient", "--text");
+      assert.match(String(text.json), /Exact next action/);
+
       const unknown = await treepo(repo.root, "frobnicate");
       assert.equal(unknown.code, 2);
 

@@ -195,3 +195,41 @@ After every recovery an exact retry is idempotent for the rolled-forward/complet
 - **Expiry is sequence-based** (no wall-clock time anywhere in authoritative state), so an expiry of "N transitions" is exact and deterministic but is not a calendar deadline.
 - **F.3 is intentionally not claimed:** no workflow adapter exists yet (Phase 6). The static one-workflow-adapter check still asserts "at most one".
 - Adapter statuses are computed from the current state and live facts on demand; there is no cached adapter state anywhere outside authoritative objects and the registry files.
+
+---
+
+## Phase 6 — S7 continuity workflow adapter; S8 fresh-agent orientation
+
+| Item | Value |
+|---|---|
+| Date (UTC) | 2026-09-16 |
+| Parent commit | `66b17d0` (Phase 5 checkpoint) |
+| Environment | Windows 11 (win32 x64), NTFS local working copy; Node.js 24.19.0; Git 2.54.0.windows.1; typescript 6.0.3 |
+| Commands | `npm run typecheck` (exit 0); `npm test` (exit 0) |
+| Test totals | 157 tests, 34 suites: **157 pass, 0 fail, 0 skipped** (7 new in this phase, including the end-to-end fresh-agent proof) |
+| Evidence runs | see `evidence/phase-6/INDEX.md`: one in-session run failed a single assertion (below) and is recorded there; the preserved capture after the correction is authoritative |
+
+### Delivered
+
+- **Workflow adapter API.** A workflow adapter implements `planTransition(action, context, input)`, a pure function returning either a plan (capability, transition name, next action, position, completed/accepted additions, its own namespace state) or a policy rejection. It has no path to the store, pointer, lock, journal, or publication; the static surface test enforces this.
+- `src/adapters/workflow/continuity/` — **the one first-party workflow adapter (BLD-002).** Generic lifecycle idle → active ⇄ paused, handed-off → active; actions begin, progress, checkpoint, pause, resume, handoff (all consequential) plus read-only orient. Resume and handoff carry the recorded next action verbatim unless the caller restates it (exact continuation). No roles, stages, document types, or domain methodology.
+- `src/adapters/workflow-runner.ts` — executes a plan through Adapter Contract §4 layers at **every** transition: core integrity, installed, compatible, environment and workflow prerequisites, declared capability, active for that capability, eligible anchored grant for consequential capabilities (revoked or expired authority stops further work), then the core transaction.
+- `src/orient/` — orientation from durable state and live facts only: validation report, state identity and lineage length, last transition, exact next action, position, completed and accepted items, active workflow state, distinct adapter states, the consequential actions currently authorized, repository drift, uncommitted TReePo entries, and fixed constraints. Refuses (no continuation fields) when validation fails. `renderOrientation` produces the derived `.treepo/AGENT-ENTRY.md`, written at init, by `orient --write-entry`, and after each CLI workflow command; it is marked derived and is in uninstall's owned-path list.
+- CLI: `orient [--text] [--write-entry]`, `begin`, `progress --done id=note`, `checkpoint`, `pause`, `resume`, `handoff`.
+- The static one-workflow-adapter check now asserts **exactly one** adapter directory and registry entry and scans `src/` for deferred-methodology tokens.
+- Tests: `continuity-adapter.test.ts` (F.3 lifecycle, policy rejections, re-checked authority at each transition, activation required even with a grant), `fresh-agent.test.ts` (Acceptance C.1–C.13 with Agent B as a real child process launched with a minimal environment and only the repository path; plus refusal on an invalid state), CLI workflow round-trip in `cli.test.ts`.
+
+### Fresh-agent proof, as run
+
+Agent A (test process): install and activate the continuity adapter under a human grant covering begin/progress/checkpoint/pause; begin "feature X"; write and commit a real file; record progress with the commit digest and the exact next action; checkpoint; pause with prerequisites. Validation passes; the derived entry file exists; the human commits the state files. Agent B (child process, minimal environment, repository path only) locates and validates the same state id and sequence, reports the completed item, the paused position, the exact next action with its prerequisites, the four capabilities currently authorized (resume is not among them), and reports working-copy drift because HEAD moved after the pause. B's attempts to resume (`ADAPTER_NOT_ACTIVE`), to begin again (`WORKFLOW_POLICY`), and to re-record completed work (`WORKFLOW_POLICY`) are all refused with no mutation. After the human grants and activates resume, a second fresh Agent B process resumes; the successor validates, the next action is carried forward verbatim, and the transition records requester `agent-b`.
+
+### Defect in the test found during the phase
+
+The first full-suite run failed one assertion: the test expected `drift=false` for Agent B, but the human had committed the state files after the pause, so HEAD moved and the product correctly reported drift. The assertion was corrected to expect drift with an explanation; the product code was not changed. The failed run is recorded in `evidence/phase-6/INDEX.md`; its raw output was in-session only and was not preserved as files.
+
+### Honest limits recorded
+
+- Agent B's "no prior conversation" is demonstrated by process isolation and a minimal environment; the test also asserts that no environment variable mentioning session, chat, or this tool reached the child. It does not, and cannot, prove anything about a host that bypasses repository instructions (Acceptance N).
+- The continuity adapter's lifecycle vocabulary is an engineering choice; it is workflow-generic and carries no domain semantics, but the contracts do not prescribe it.
+- Semantic memory does not exist yet, so the fresh-agent proof ran without it by construction; the explicit "semantic unavailable" case (H.8) is Phase 8.
+- Hydration/fast lane does not exist yet; every transition in this phase ran under full assurance.

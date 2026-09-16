@@ -18,6 +18,7 @@ import type { ValidatedState } from "../core/state/validate.ts";
 import { activationOf, ADAPTER_API, CORE_API, type AdapterImplementation, type AdapterManifest, type AdapterStatus, type Prerequisite } from "./api.ts";
 import type { RepositoryFacts } from "./repo/git/facts.ts";
 import { gitAdapter } from "./repo/git/manifest.ts";
+import { continuityAdapter } from "./workflow/continuity/index.ts";
 
 export interface InstalledRecord {
   readonly adapterApi: string;
@@ -32,7 +33,8 @@ export interface Registry {
   find(id: string): AdapterImplementation | undefined;
 }
 
-const FIRST_PARTY: readonly AdapterImplementation[] = [gitAdapter];
+/** Exactly one first-party workflow adapter ships in v1 (BLD-002) alongside the Git repository adapter. */
+const FIRST_PARTY: readonly AdapterImplementation[] = [gitAdapter, continuityAdapter];
 
 /** The registry of adapters compiled into this core. Tests may add manifests; production code never does. */
 export function createRegistry(extra: readonly AdapterImplementation[] = []): Registry {

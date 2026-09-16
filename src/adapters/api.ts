@@ -61,6 +61,40 @@ export interface AdapterImplementation {
   checkPrerequisites(context: AdapterContext): Promise<PrerequisiteResult>;
 }
 
+export interface NewItemSpec {
+  readonly id: string;
+  readonly digest: string;
+}
+
+/**
+ * What a workflow adapter asks the core to publish. The adapter decides
+ * workflow meaning (which capability, lifecycle, next action, what counts as
+ * completed); the framework decides whether it may happen (active, authorized)
+ * and the core decides whether the resulting transition is valid.
+ */
+export interface WorkflowPlan {
+  readonly capability: string;
+  readonly transitionName: string;
+  readonly nextAction: { readonly id: string; readonly description: string; readonly prerequisites: readonly string[] };
+  readonly position: { readonly label: string; readonly detail: string };
+  readonly addCompleted?: readonly NewItemSpec[];
+  readonly addAccepted?: readonly NewItemSpec[];
+  readonly supersedes?: readonly string[];
+  /** Full replacement value for the adapter's own namespace in the successor. */
+  readonly adapterState: CanonicalValue;
+}
+
+export type WorkflowPlanResult = { readonly ok: true; readonly plan: WorkflowPlan } | { readonly ok: false; readonly code: string; readonly reason: string };
+
+export interface WorkflowAdapter extends AdapterImplementation {
+  /** Pure: derive the intended transition from the current state and the caller's input, or reject it for workflow policy. */
+  planTransition(action: string, context: AdapterContext, input: CanonicalValue): WorkflowPlanResult;
+}
+
+export function isWorkflowAdapter(impl: AdapterImplementation): impl is WorkflowAdapter {
+  return impl.manifest.category === "workflow" && typeof (impl as Partial<WorkflowAdapter>).planTransition === "function";
+}
+
 /** Namespace inside the state object where activation is recorded. */
 export const ACTIVATION_NAMESPACE = "treepo.activation";
 

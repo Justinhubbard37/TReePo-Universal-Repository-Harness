@@ -11,6 +11,7 @@ import type { SurfaceDelta } from "../core/state/surface.ts";
 import { requireValidState, validateAuthoritativeState, type ValidatedState, type ValidationReport } from "../core/state/validate.ts";
 import { loadAnchoredAuthz } from "../core/authz/index.ts";
 import { adapterStatuses, createRegistry, readInstalledRecords, route, type AdapterImplementation, type AdapterStatus, type Registry, type RouteResult } from "../adapters/index.ts";
+import { orient, writeAgentEntry, type Orientation } from "../orient/index.ts";
 import { acquireLock, clearStaleLock, type ClearStaleLockResult } from "../core/tx/lock.ts";
 import { publishTransition, type BuildContext, type PublishPhase, type PublishResult } from "../core/tx/publish.ts";
 import { recoverIncomplete, type RecoveryReport } from "../core/tx/recover.ts";
@@ -50,6 +51,16 @@ export async function adapters(project: Project): Promise<AdapterStatus[]> {
 /** Router recommendation for a plain-language intent; confers nothing. */
 export async function routeIntent(project: Project, intent: string): Promise<RouteResult> {
   return route(intent, project.registry, await adapters(project));
+}
+
+/** Fresh-agent orientation derived from durable state and live facts only. */
+export function orientProject(project: Project): Promise<Orientation> {
+  return orient(project.platform, project.layout, project.registry);
+}
+
+export async function refreshAgentEntry(project: Project): Promise<{ readonly path: string; readonly orientation: Orientation }> {
+  const orientation = await orientProject(project);
+  return { path: await writeAgentEntry(project.platform, project.layout, orientation), orientation };
 }
 
 export function observe(project: Project): Promise<RepositoryFacts> {
