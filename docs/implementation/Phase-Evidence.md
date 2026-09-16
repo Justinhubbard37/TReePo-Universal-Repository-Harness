@@ -124,3 +124,40 @@ After every recovery an exact retry is idempotent for the rolled-forward/complet
 - **Simultaneous-start concurrency** is exercised with a barrier file; the losing process is rejected with either `LOCK_HELD` or `STALE_PREDECESSOR` depending on timing. Both are correct; the test asserts exactly one publication and one successor object.
 - **Working-copy facts remain fixture-supplied.** The core enforces `STALE_WORKING_COPY` against an injected live observation; Git-observed facts arrive in Phase 4.
 - Distributed or multi-host writer coordination is not claimed (Architecture §6); a foreign-host lock is never cleared automatically.
+
+---
+
+## Phase 4 — S4 Git repository/environment adapter; S5 bootstrap, adoption, uninstall
+
+| Item | Value |
+|---|---|
+| Date (UTC) | 2026-09-16 |
+| Parent commit | `02c7fb5` (evidence-rule docs commit after the Phase 3 checkpoint `76cbb97`) |
+| Environment | Windows 11 (win32 x64), NTFS local working copy; Node.js 24.19.0; Git 2.54.0.windows.1; typescript 6.0.3 |
+| Commands | `npm run typecheck` (exit 0); `npm test` (exit 0) |
+| Test totals | 128 tests, 28 suites: **128 pass, 0 fail, 0 skipped** (25 new in this phase) |
+| Evidence runs | one capture, authoritative; see `evidence/phase-4/INDEX.md` for the run path (ignored; delivered outside the repository) |
+
+### Delivered
+
+- `src/adapters/repo/git/` — ED-11 adapter: `git` through `execFile` with fixed argument arrays; facts: root, git dir, common dir, version, HEAD (empty when unborn), branch (empty when detached), case sensitivity probe, `.gitattributes` presence, operations in progress (merge, rebase, cherry-pick, revert, bisect markers), and the ED-18 partition: `workingCopy` = worktree identity + HEAD + branch + `dirtyDigest` over sorted porcelain v2 records excluding `.treepo/**` + `conflictDigest` over unmerged records and operations; `treepoSurface` lists the `.treepo/**` records for reporting only. Fails closed outside a working tree and for bare repositories.
+- `src/core/authz/record.ts` — ED-16 record format: grant id and digest computed over content, scope (adapter id + sorted capabilities), free-text grantor and statement, sequence-based issue/expiry (no wall-clock time), revocation pointer; strict shape; write-once.
+- `src/bootstrap/` — owner marker (`.treepo/OWNER`: kind, schema, install id, core version); read-only `preflight` returning install classification (adoptable / installed / incomplete / foreign / incompatible), validation when installed, and an intake draft that lists mechanically known facts, the three human-only inputs (requester, grantor, statement), and adapter availability with installed/applicable/compatible/recommended/authorized/active kept distinct; `init` requiring explicit authorization before any governance state exists, writing only under `.treepo/` (owner, `.gitignore` for `runtime/`, `.gitattributes` `* -text`, bootstrap grant, genesis object, `CURRENT` last); `uninstall` removing only paths TReePo can prove it wrote and refusing entirely when anything else is present or the owner marker is missing.
+- `src/harness/` — binds core to the Git adapter: `openProject`, `status` (validation + live facts + `WORKING_COPY_DRIFT`), `publish` with live facts observed by the adapter, `recover` with optional stale-lock clearing.
+- `src/cli/main.ts`, `bin/treepo.ts` — `preflight`, `init`, `validate`, `status`, `recover`, `uninstall`, `version`; JSON output; exit codes 0/1/2.
+- Tests: `git-adapter.test.ts`, `init.test.ts` (A.1–A.7), `install.test.ts` (A.8, G.1–G.6, namespace collision), `repo-fact-partition.test.ts` (RFP-01/02/03 with real Git operations, runtime exclusion, `.treepo` conflict markers), `cli.test.ts` (real child process). All integration fixtures create fresh Git repositories with no pre-existing TReePo state and set Git identity repository-locally only.
+
+### Defects found and fixed during this phase (before the evidence run)
+
+- Bare-repository detection asked for the work-tree path first, which fails in a bare repository; the adapter now checks `--is-bare-repository` and `--is-inside-work-tree` before requesting paths.
+- `uninstall` used a non-recursive `fs.rm` on directories, which fails on a directory and was swallowed, leaving `.treepo` non-empty; owned directories are now removed with `rmdir`, deepest first, and a real failure propagates.
+- An initialization that faults before the owner marker leaves only empty directories; classification now treats a `.treepo` with no files anywhere as adoptable instead of foreign.
+- The merge test originally committed `.treepo/state` on both branches, so the conflict landed inside `CURRENT` and validation failed closed with conflict markers. That is required behavior, so the test was split: a user-only conflict rejects with `STALE_WORKING_COPY` while authoritative state stays valid; divergent TReePo state on merged branches fails closed with a named integrity code until the merge is aborted.
+
+### Honest limits recorded
+
+- `dirtyDigest` fingerprints the dirty *set* as Git reports it (paths, index/worktree status codes, index blob ids). Further edits to a path that is already modified in the worktree do not change the fingerprint, exactly as ED-18 defines it; content changes are governed by what the user commits, and the fingerprint changes on every commit, stage, add, delete, rename, branch switch, or in-progress operation.
+- The bootstrap grant is bound by the genesis surface digest, so its addition, removal, or modification outside a governed transition fails closed. Scope matching, expiry, revocation, and per-grant eligibility (ED-16 anchoring rules) are Phase 5.
+- No workflow adapter exists yet; the genesis next action states generically that a workflow adapter must be selected through the Router before governed work begins.
+- Uninstall does not run `git rm`; if `.treepo/state` was committed, Git will show the removed files as deletions for the user to commit. TReePo performs no consequential repository action on the user's behalf.
+- The Windows-only limits from Phases 1 and 3 (no directory fsync, no per-file ACL restriction) still apply.

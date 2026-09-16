@@ -36,6 +36,8 @@ export interface GenesisInput {
   readonly position: Position;
   readonly accepted?: readonly NewItem[];
   readonly adapter?: { readonly [namespace: string]: CanonicalValue };
+  /** Authorization records the bootstrap relied upon (Architecture §7 provenance). */
+  readonly authzRefs?: readonly string[];
 }
 
 export interface SuccessorInput {
@@ -82,7 +84,7 @@ export function buildGenesis(input: GenesisInput): StateObject {
     seq: 0,
     predecessorId: null,
     rootId: null,
-    transition: { name: "genesis", requestDigest: input.requestDigest, requester: input.requester, authzRefs: [], supersedes: [] },
+    transition: { name: "genesis", requestDigest: input.requestDigest, requester: input.requester, authzRefs: [...(input.authzRefs ?? [])], supersedes: [] },
     repoFacts: input.repoFacts,
     surfaceDigests: input.surfaceDigests,
     core: {
