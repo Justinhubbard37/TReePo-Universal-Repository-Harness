@@ -17,9 +17,15 @@
 //   CURRENT validates and the target is not on it        → abandoned: the import never took effect
 //                                                          (any partial import write fails validation)
 //   anything else                                        → TRANSPORT_RECOVERY_AMBIGUOUS, nothing touched
+//   a core transaction journal is pending                → TRANSPORT_RECOVERY_PENDING, nothing touched
 // Rollback removes only files whose bytes still hash to what this import
 // wrote, restores removed surface files from the journal, and removes only
-// this import's temp files by name.
+// this import's temp files by name. Recovery runs only under the writer lock
+// and re-verifies ownership immediately before it changes anything. With the
+// lock held and no core transaction pending, CURRENT still at the predecessor
+// proves no other writer has published since the import began, so bytes that
+// match this import's recorded digests cannot belong to anyone else; once
+// another writer has published, CURRENT has moved and recovery never rolls back.
 
 import { promises as fs } from "node:fs";
 import * as nodePath from "node:path";
@@ -30,6 +36,7 @@ import { encodeCurrent, type CurrentPointer } from "../core/state/current.ts";
 import type { Layout } from "../core/state/layout.ts";
 import { readCurrent } from "../core/state/store.ts";
 import { requireValidState, type ValidatedState } from "../core/state/validate.ts";
+import { listJournals } from "../core/tx/journal.ts";
 import type { LockHandle } from "../core/tx/lock.ts";
 import type { Platform } from "../platform/index.ts";
 import type { TransportPointer } from "./bundle.ts";
@@ -186,7 +193,7 @@ export async function removeImportTemps(platform: Platform, layout: Layout, jour
  * predecessor (or removed when there was none). Checks every file before
  * touching anything; any foreign or unexpected bytes abort with nothing changed.
  */
-export async function rollbackImport(platform: Platform, layout: Layout, journal: ImportJournal, options: { readonly restorePointer: boolean }): Promise<void> {
+export async function rollbackImport(platform: Platform, layout: Layout, journal: ImportJournal, options: { readonly restorePointer: boolean; readonly lock: LockHandle }): Promise<void> {
   const removeAdds: string[] = [];
   const restore: JournalRemove[] = [];
   for (const add of journal.adds) {
@@ -201,6 +208,8 @@ export async function rollbackImport(platform: Platform, layout: Layout, journal
     if (existing === undefined || removeAdds.includes(rem.path)) restore.push(rem);
     else if (sha256Hex(existing) !== rem.digest) throw ambiguous(`${rem.path} holds bytes that are neither the removed original nor this import's; nothing rolled back`, { path: rem.path });
   }
+  // Every check above is read-only. Nothing below is done without re-verified writer ownership.
+  await options.lock.verify();
   let pointerBytes: Uint8Array | undefined;
   if (options.restorePointer) {
     pointerBytes = await readIfExists(layout.currentFile);
@@ -254,6 +263,12 @@ export async function recoverImport(platform: Platform, layout: Layout, lock: Lo
   if (read.status === "malformed") {
     throw new ContinuityError({ code: "TRANSPORT_JOURNAL_MALFORMED", message: `import journal is malformed (${read.reason}); nothing was modified`, details: { path: importJournalFile(layout), reason: read.reason } });
   }
+  // An interrupted core transaction is another writer's unpublished state; its bytes can never be attributed
+  // to this import, so import recovery waits until core recovery has resolved it.
+  const core = await listJournals(layout);
+  if (core.records.length > 0 || core.malformed.length > 0) {
+    throw new ContinuityError({ code: "TRANSPORT_RECOVERY_PENDING", message: "an interrupted core transaction is pending; it must be recovered before the import journal; nothing was modified", details: { transactions: core.records.length, malformed: core.malformed } });
+  }
   const journal = read.journal;
   let pointer: CurrentPointer | null = null;
   try {
@@ -269,6 +284,7 @@ export async function recoverImport(platform: Platform, layout: Layout, lock: Lo
     } catch (error) {
       throw ambiguous("CURRENT names the import target but the state does not validate; nothing touched", { target: journal.target }, error);
     }
+    await lock.verify();
     await removeImportTemps(platform, layout, journal);
     await removeImportJournal(platform, layout);
     return { ...base, outcome: "completed", currentStateId: pointer.stateId };
@@ -277,7 +293,7 @@ export async function recoverImport(platform: Platform, layout: Layout, lock: Lo
   const atPredecessor =
     journal.predecessor === null ? pointer === null : pointer !== null && pointer.stateId === journal.predecessor.stateId && pointer.seq === journal.predecessor.seq;
   if (atPredecessor) {
-    await rollbackImport(platform, layout, journal, { restorePointer: false });
+    await rollbackImport(platform, layout, journal, { restorePointer: false, lock });
     if (journal.predecessor !== null) {
       try {
         await requireValidState(layout);
@@ -296,6 +312,7 @@ export async function recoverImport(platform: Platform, layout: Layout, lock: Lo
       if (!isTreepoError(error)) throw error;
     }
     if (state !== undefined) {
+      await lock.verify();
       if (state.chain.some((s) => s.id === journal.target.stateId)) {
         await removeImportJournal(platform, layout);
         return { ...base, outcome: "completed", currentStateId: state.current.id };

@@ -421,3 +421,64 @@ Because most transport tests passed on their first run, ten plausible defects we
 - **Clone sufficiency compares raw bytes with `HEAD` blobs.** Git filters or line-ending conversion applied to committed `.treepo/` files would be reported as "differ" (conservative); TReePo's `.treepo/.gitattributes` disables conversion.
 - The Windows limits from Phases 1 and 3 (no directory fsync on NTFS; no per-file ACL restriction) apply to import publication and runtime files.
 - **TRP-SEM-10 remains IN-PROGRESS**: its transport-exclusion half is proven here on Windows; "works in both environments" requires Phase 11.
+
+---
+
+## Phase 9 — bounded correction: writer-lock ownership during transport import (Phase Zero finding)
+
+| Item | Value |
+|---|---|
+| Date (UTC) | 2026-09-17 |
+| Parent commit | `82ba9d1` (Phase 9 candidate checkpoint) |
+| Finding | Phase Zero independent audit of `82ba9d1`: **CORRECTION REQUIRED**. Import could lose the shared writer lock and keep publishing. A legitimate second writer could take the free lock and publish a valid successor; the import then overwrote `CURRENT`, failed validation, and its in-process rollback rewound `CURRENT` to the predecessor, leaving `AUTHORITATIVE_DIVERGENCE` instead of the second writer's valid state. |
+| Scope | Bounded: `src/transport/import.ts`, `src/transport/journal.ts`, a new regression file, derived docs, evidence and ledger. No architecture, lock design, governing document, Phase 8 or Phase 10 change. L.6 not advanced. |
+| Reproduction | New `test/integration/transport-lock.test.ts` run against the unmodified `82ba9d1` sources: 8 tests, **0 pass / 8 fail**. Case B failed with `AUTHORITATIVE_DIVERGENCE: … CURRENT appears rewound` (the reported defect); Case C showed `CURRENT` published under lost ownership. Evidence: `evidence/phase-9/correction-lock-20260917T083047Z/repro.log`. |
+| Environment | Windows 11 (win32 x64), NTFS local working copy; Node.js 24.19.0; Git 2.54.0.windows.1; typescript 6.0.3 |
+| Verification after correction | lock regressions 11/11; all Phase 9 transport files 58/58 before the last two regression cases were added (the full suite covers all 60); correction mutation checks 6/6 detected; `npm run typecheck` exit 0; full suite **252 tests, 47 suites: 252 pass, 0 fail, 0 skipped, 0 cancelled** |
+| Evidence runs | `evidence/phase-9/correction-lock-20260917T083047Z/full-suite-20260917T084450Z` — authoritative after the correction. The original Phase 9 exit run `run-20260917T011313Z` and every earlier Phase 9 run are preserved unchanged; see `evidence/phase-9/INDEX.md`. |
+
+### Root cause
+
+`src/transport/import.ts` verified writer ownership only when import recovery started. It did not re-verify before the import journal, the surface removals and file writes, `CURRENT`, or completion. Its abort path rolled back, including returning `CURRENT` to the predecessor, without first establishing that it still owned the lock. The core transaction path (`publishTransition`) re-verifies ownership before its `CURRENT` publication and never recovers after `LOCK_LOST`. Import did not preserve that guarantee.
+
+### Correction (existing shared lock and transaction semantics only)
+
+- **Ownership at every material boundary.** `lock.verify()` immediately before the import journal, before every surface removal and file write, before `CURRENT`, before final validation, and before journal removal (completion).
+- **No action without ownership.** On any failure the abort path first checks ownership. Without it, nothing further is written and nothing is rolled back. The error is `LOCK_LOST` with `details.reacquired`, `details.recovery`, `details.recoveryError` and the original cause.
+- **Ownership re-established only through the shared lock.** After a loss the import tries `acquireLock` again (ED-10, unchanged). If that succeeds, it runs only the standard import recovery, the same procedure as `treepo recover`, which decides from disk alone:
+  - rolled back to the exact predecessor, when `CURRENT` is still the predecessor;
+  - completed, when the target is on the current lineage;
+  - abandoned, when another writer's valid state is current and the target is not on its lineage;
+  - otherwise refused with nothing touched.
+
+  An adoption that lost the lock before its journal existed withdraws only the owner marker it created. If another writer holds the lock, nothing is touched (`reacquired: false`) and everything is left for `treepo recover`.
+- **Release only if owned.** A lock now held by another writer is never removed.
+- **Recovery never attributes another writer's bytes to the import.** Import rollback re-verifies ownership before its first change. It runs only when `CURRENT` is still the predecessor: with the lock held that proves no other writer has published, so files matching the import's recorded digests are its own. Import recovery now refuses (`TRANSPORT_RECOVERY_PENDING`, nothing touched) while a core transaction journal is pending, because that is another writer's unpublished state. Both import paths check for pending core transactions before touching an import journal.
+
+### Regression coverage (`test/integration/transport-lock.test.ts`, 11 tests)
+
+The lock file is removed at a real publication boundary (exactly what a lost lock looks like on disk); in some cases a legitimate second writer then publishes through the ordinary governed transition path.
+
+| Case | Proof |
+|---|---|
+| A: lost before any authoritative write, no competing writer | `LOCK_LOST`, recovery `rolled-back`; `.treepo` bytes equal the exact predecessor; validates at the predecessor; no lock, journal or temp file left; a later import fast-forwards |
+| A (mid-publication): lost after the first file | same; the file the import wrote is removed under re-established ownership |
+| B (Phase Zero reproduction): lost, second writer acquires and publishes | `CURRENT` is the second writer's successor; `.treepo` bytes identical to the moment after its publication; validates; the import published nothing; recovery `abandoned`; further work publishes |
+| B (lock still held by the other writer) | `reacquired: false`; the other writer's lock intact; its state valid and byte-identical; after it releases, `recover` → `abandoned`, still byte-identical |
+| C: lost immediately before `CURRENT` | every file had been written, `CURRENT` had not; `CURRENT` is never published; recovery `rolled-back`; exact predecessor; validates |
+| C (with a competing writer) | the second writer fails closed on the partial import and leaves no transaction; after the import's rollback it publishes |
+| lost after `CURRENT`, second writer continues on top | the second writer's successor stays current and byte-identical; the import's target is on its lineage; recovery `completed`; validates |
+| lost before the journal while another writer holds the lock | no journal and no authoritative byte written; the other writer's lock intact; validates |
+| adoption: lost before the journal, no competing writer | ownership re-established; only the owner marker this import created withdrawn; the copy is adoptable again; a later import succeeds |
+| adoption: lost after the journal | recovery `rolled-back`; nothing of the adoption remains |
+| pending core transaction during import recovery | `recoverImport` and a new import refuse with `TRANSPORT_RECOVERY_PENDING`; partial import files, import journal and the core journal untouched; after the core transaction is resolved, `recover` rolls the import back |
+
+**Test strength.** Six defects were injected into the correction one at a time: no verify before `CURRENT`; abort without the ownership check; no verify before file writes; no recovery after loss; recovery ignoring a pending core transaction; no verify before the journal. In the first round (`mutation-20260917T083942Z`) two were **not** detected (abort without the ownership check; no verify before the journal). Each was backed by a second check, so end states matched in the existing cases, but this exposed two untested behaviors: no journal is written under lost ownership, and a loss before the journal is handled as a loss. The two pre-journal cases above were added; the second round (`mutation-20260917T084247Z`) detected **6 of 6**, with sources restored byte-identical.
+
+### Residual limitation (stated, not claimed away)
+
+The writer lock is an exclusive-create lock file. Ownership is verified immediately before each material step, but the check and the following filesystem operation are not atomic. A lock taken away inside that window cannot be detected before that one step completes; the core transaction has the same bounded window between its ownership check and its `CURRENT` rename. The next check detects the loss. A resulting state that cannot be proven safe fails validation and is left for `treepo recover`, which refuses anything ambiguous and never rolls back bytes it cannot prove are the import's.
+
+### Status after the correction
+
+`TRP-AC-L3` records the correction and its proof. It is **not** acceptance: Phase Zero re-audit decides. `TRP-BLD-004` and `TRP-SEM-10` remain IN-PROGRESS; L.6 remains Phase 11.

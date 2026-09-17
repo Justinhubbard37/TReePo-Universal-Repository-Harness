@@ -21,7 +21,14 @@
 //      no receiving state → adopt.
 // Publication: OWNER (adopt only) → writer lock → journal → surface removals →
 // files → CURRENT last → final validation → journal removed. CURRENT is the
-// single switch: every earlier on-disk state fails validation. Import is an
+// single switch: every earlier on-disk state fails validation.
+// Ownership of the shared writer lock is re-verified immediately before the
+// journal, every surface removal and file write, CURRENT, and completion. If
+// ownership is lost, nothing further is written under the lost lock and nothing
+// is rolled back without ownership; ownership is re-established only by
+// acquiring the shared lock again, and then only the standard import recovery
+// runs (the same procedure as `treepo recover`). If another writer holds the
+// lock, everything is left for recovery. Import is an
 // assurance boundary for the receiving copy, so any session capability there
 // is invalidated before anything else changes. Runtime material (locks,
 // journals, capabilities, semantic memory) is neither read from the bundle
@@ -183,10 +190,12 @@ async function ownerOnlyLeftovers(layout: Layout, verified: VerifiedBundle): Pro
   return temps;
 }
 
-async function apply(platform: Platform, layout: Layout, verified: VerifiedBundle, journal: ImportJournal): Promise<void> {
+async function apply(platform: Platform, layout: Layout, verified: VerifiedBundle, journal: ImportJournal, lock: LockHandle): Promise<void> {
   const replaced = new Set(journal.adds.map((a) => a.path));
   for (const rem of journal.removes) {
-    if (!replaced.has(rem.path)) await platform.removeFile(treepoPath(layout, rem.path), { label: "transport-remove" });
+    if (replaced.has(rem.path)) continue;
+    await lock.verify();
+    await platform.removeFile(treepoPath(layout, rem.path), { label: "transport-remove" });
   }
   for (const add of journal.adds) {
     const bytes = verified.decoded.files.get(add.path) ?? SCAFFOLD.get(add.path)!;
@@ -197,9 +206,12 @@ async function apply(platform: Platform, layout: Layout, verified: VerifiedBundl
       if (!journal.removes.some((r) => r.path === add.path && r.digest === sha256Hex(existing))) fail("TRANSPORT_TARGET_CHANGED", `${add.path} changed on the receiving copy during import`, { path: add.path });
     }
     await fs.mkdir(nodePath.dirname(path), { recursive: true });
+    await lock.verify();
     await platform.writeFileAtomic(path, bytes, { label: "transport-file" });
   }
   await platform.fsyncDir(layout.objectsDir, { label: "objects" });
+  // The single authoritative switch is published only under re-verified ownership.
+  await lock.verify();
   await platform.writeFileAtomic(layout.currentFile, verified.decoded.files.get("state/CURRENT")!, { label: "CURRENT" });
   await platform.fsyncDir(layout.stateDir, { label: "state" });
 }
@@ -234,8 +246,79 @@ interface Publication {
   readonly unlock: ClearStaleLockResult | null;
 }
 
+/** Whether this handle still owns the shared writer lock. */
+async function owns(lock: LockHandle): Promise<boolean> {
+  try {
+    await lock.verify();
+    return true;
+  } catch (error) {
+    if (isTreepoError(error) && error.code === "LOCK_LOST") return false;
+    throw error;
+  }
+}
+
+/** Release the lock only if this handle still owns it; a lock now held by someone else is never removed. */
+async function releaseIfOwned(lock: LockHandle): Promise<void> {
+  try {
+    await lock.release();
+  } catch (error) {
+    if (!(isTreepoError(error) && error.code === "LOCK_LOST")) throw error;
+  }
+}
+
+/**
+ * The import lost the writer lock and has already stopped writing. Ownership is
+ * re-established only through the shared lock; with it, the standard import
+ * recovery resolves this import's journal from disk alone (rolled back to the
+ * exact predecessor, completed, or abandoned when another writer's valid state
+ * is current; anything unprovable is left untouched). An adoption whose journal
+ * was never written withdraws only the owner marker this invocation created.
+ * If the lock is held by another writer, nothing is touched.
+ */
+async function afterOwnershipLoss(pub: Publication, cause: unknown, withdrawOwner: boolean): Promise<ContinuityError> {
+  let relock: LockHandle | undefined;
+  let lockError: { code: string; message: string } | null = null;
+  try {
+    relock = await acquireLock(pub.platform, pub.layout);
+  } catch (error) {
+    if (!isTreepoError(error)) throw error;
+    lockError = { code: error.code, message: error.message };
+  }
+  let recovery: ImportRecovery | null = null;
+  let recoveryError: { code: string; message: string } | null = null;
+  if (relock !== undefined) {
+    try {
+      recovery = await recoverImport(pub.platform, pub.layout, relock);
+      if (recovery === null && withdrawOwner && (await readIfExists(pub.layout.currentFile)) === undefined) {
+        const temps = await ownerOnlyLeftovers(pub.layout, pub.verified);
+        await relock.verify();
+        for (const temp of temps) await pub.platform.removeFile(temp, { label: "transport-temp" });
+        const owner = await readIfExists(pub.layout.ownerFile);
+        if (owner !== undefined && Buffer.compare(owner, pub.verified.ownerBytes) === 0) await pub.platform.removeFile(pub.layout.ownerFile, { label: "transport-rollback" });
+      }
+    } catch (error) {
+      if (!isTreepoError(error)) throw error;
+      recoveryError = { code: error.code, message: error.message };
+    } finally {
+      await releaseIfOwned(relock);
+    }
+  }
+  const outcome =
+    relock === undefined
+      ? `ownership could not be re-established (${lockError?.code ?? "unknown"}); nothing was touched; run treepo recover once the other writer is done`
+      : recoveryError !== null
+        ? `ownership was re-established but recovery refused (${recoveryError.code}); nothing unprovable was touched; run treepo recover`
+        : `ownership was re-established and import recovery finished (${recovery?.outcome ?? "nothing to recover"})`;
+  return new ContinuityError({
+    code: "LOCK_LOST",
+    message: `the writer lock was lost during import; nothing further was written under it and nothing was rolled back without ownership; ${outcome}`,
+    details: { reacquired: relock !== undefined, lockError, recovery, recoveryError, cause: isTreepoError(cause) ? { code: cause.code, message: cause.message } : String(cause) },
+    cause,
+  });
+}
+
 /** Run `body` under the writer lock with import crash/abort semantics. */
-async function underLock<T>(pub: Publication, lock: LockHandle, body: (setJournal: (j: ImportJournal | undefined) => void) => Promise<T>): Promise<T> {
+async function underLock<T>(pub: Publication, lock: LockHandle, body: (setJournal: (j: ImportJournal | undefined) => void) => Promise<T>, withdrawOwnerOnLoss = false): Promise<T> {
   let crashed = false;
   let journal: ImportJournal | undefined;
   try {
@@ -248,10 +331,13 @@ async function underLock<T>(pub: Publication, lock: LockHandle, body: (setJourna
       crashed = true;
       throw error;
     }
-    if (journal !== undefined && !(isTreepoError(error) && error.code === "LOCK_LOST")) {
+    // Never roll back, or touch anything, without ownership.
+    if (!(await owns(lock))) throw await afterOwnershipLoss(pub, error, withdrawOwnerOnLoss && journal === undefined);
+    if (journal !== undefined) {
       try {
-        await rollbackImport(pub.platform, pub.layout, journal, { restorePointer: true });
+        await rollbackImport(pub.platform, pub.layout, journal, { restorePointer: true, lock });
       } catch (rollbackError) {
+        if (!(await owns(lock))) throw await afterOwnershipLoss(pub, rollbackError, false);
         throw new ContinuityError({
           code: isTreepoError(error) ? error.code : "TRANSPORT_IMPORT_FAILED",
           message: `${(error as Error).message}; rollback after abort also failed: ${(rollbackError as Error).message}`,
@@ -262,7 +348,7 @@ async function underLock<T>(pub: Publication, lock: LockHandle, body: (setJourna
     }
     throw error;
   } finally {
-    if (!crashed) await lock.release();
+    if (!crashed) await releaseIfOwned(lock);
   }
 }
 
@@ -290,8 +376,8 @@ async function importIntoInstalled(pub: Publication): Promise<ImportResult> {
   const { platform, layout, verified } = pub;
   const lock = await acquireLock(platform, layout);
   return underLock(pub, lock, async (setJournal) => {
-    const recovered = await recoverImport(platform, layout, lock);
     await refuseCorePending(layout);
+    const recovered = await recoverImport(platform, layout, lock);
     const capabilityInvalidated = await dropCapability(platform, layout);
 
     let receiving: ValidatedState;
@@ -347,10 +433,13 @@ async function importIntoInstalled(pub: Publication): Promise<ImportResult> {
       }
     }
     const journal: ImportJournal = { schemaVersion: IMPORT_JOURNAL_SCHEMA_VERSION, kind: IMPORT_JOURNAL_KIND, bundleDigest: verified.decoded.bundleDigest, predecessor: previous, target: verified.current, adds, removes, lockToken: lock.info.token };
+    await lock.verify();
     await writeImportJournal(platform, layout, journal);
     setJournal(journal);
-    await apply(platform, layout, verified, journal);
+    await apply(platform, layout, verified, journal, lock);
+    await lock.verify();
     const validation = await finalValidation(layout, verified);
+    await lock.verify();
     await removeImportJournal(platform, layout);
     setJournal(undefined);
     return resultOf(pub, "fast-forwarded", { previous, journal, recovered, capabilityInvalidated, validation, agentEntry: await refreshAgentEntry(platform, layout) });
@@ -378,6 +467,7 @@ async function importIntoFresh(pub: Publication, incomplete: boolean): Promise<I
     throw error;
   }
   return underLock(pub, lock, async (setJournal) => {
+    await refuseCorePending(layout);
     const recovered = await recoverImport(platform, layout, lock);
     if ((await readIfExists(layout.currentFile)) !== undefined) fail("TRANSPORT_TARGET_CHANGED", "the receiving copy gained a CURRENT pointer during import; run import again", { path: layout.currentFile });
     let temps: string[];
@@ -386,25 +476,28 @@ async function importIntoFresh(pub: Publication, incomplete: boolean): Promise<I
     } catch (error) {
       // Content appeared concurrently: withdraw the owner marker this invocation created, if it is still ours.
       const owner = await readIfExists(layout.ownerFile);
-      if (createdOwner && owner !== undefined && Buffer.compare(owner, verified.ownerBytes) === 0) await platform.removeFile(layout.ownerFile, { label: "transport-rollback" });
+      if (createdOwner && owner !== undefined && Buffer.compare(owner, verified.ownerBytes) === 0 && (await owns(lock))) await platform.removeFile(layout.ownerFile, { label: "transport-rollback" });
       throw error;
     }
+    await lock.verify();
     if ((await readIfExists(layout.ownerFile)) === undefined) await platform.writeFileAtomic(layout.ownerFile, verified.ownerBytes, { label: "OWNER" });
     for (const temp of temps) await platform.removeFile(temp, { label: "transport-temp" });
-    await refuseCorePending(layout);
     const capabilityInvalidated = await dropCapability(platform, layout);
 
     const adds: JournalAdd[] = [{ path: "OWNER", digest: sha256Hex(verified.ownerBytes) }, ...(await scaffoldAdds(layout))];
     for (const [rel, bytes] of verified.decoded.files) if (rel !== "OWNER" && rel !== "state/CURRENT") adds.push({ path: rel, digest: sha256Hex(bytes) });
     const journal: ImportJournal = { schemaVersion: IMPORT_JOURNAL_SCHEMA_VERSION, kind: IMPORT_JOURNAL_KIND, bundleDigest: verified.decoded.bundleDigest, predecessor: null, target: verified.current, adds, removes: [], lockToken: lock.info.token };
+    await lock.verify();
     await writeImportJournal(platform, layout, journal);
     setJournal(journal);
-    await apply(platform, layout, verified, journal);
+    await apply(platform, layout, verified, journal, lock);
+    await lock.verify();
     const validation = await finalValidation(layout, verified);
+    await lock.verify();
     await removeImportJournal(platform, layout);
     setJournal(undefined);
     return resultOf(pub, "imported", { previous: null, journal, recovered, capabilityInvalidated, validation, agentEntry: await refreshAgentEntry(platform, layout) });
-  });
+  }, createdOwner);
 }
 
 export async function importBundle(platform: Platform, cwd: string, bundlePath: string, options: ImportOptions = {}): Promise<ImportResult> {
