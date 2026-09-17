@@ -2,6 +2,7 @@
 // JSON. Exit codes: 0 success, 1 continuity/platform failure (fail closed),
 // 2 usage error.
 
+import * as nodePath from "node:path";
 import { activateAdapter, CONTINUITY_ID, grantAuthorization, installAdapter, revokeAuthorization, runWorkflowTransition } from "../adapters/index.ts";
 import { init, preflight, uninstall } from "../bootstrap/index.ts";
 import { loadAnchoredAuthz } from "../core/authz/index.ts";
@@ -10,7 +11,7 @@ import { isTreepoError, UsageError } from "../core/errors.ts";
 import { sha256Hex } from "../core/hash.ts";
 import { renderOrientation } from "../orient/index.ts";
 import { selectPlatform } from "../platform/index.ts";
-import { adapters, current, hydrateProject, observe, openProject, orientProject, recover, refreshAgentEntry, routeIntent, routine, semantic, status } from "../harness/index.ts";
+import { adapters, current, exportProject, hydrateProject, importProject, observe, openProject, orientProject, recover, refreshAgentEntry, routeIntent, routine, semantic, status } from "../harness/index.ts";
 import { assertPinnedRuntime, PINNED_NODE_VERSION } from "./runtime-gate.ts";
 
 export interface CliIo {
@@ -56,7 +57,7 @@ commands:
   init --requester <label> --grantor <label> --statement <text> [--project <label>]
   validate                        validate authoritative state (mechanical only)
   status                          validation + live repository facts + drift
-  recover [--force-unlock]        recover interrupted publications
+  recover [--force-unlock]        recover interrupted publications and interrupted imports
   uninstall                       remove provably TReePo-owned material only
   adapter list                    distinct adapter states (available/installed/applicable/compatible/authorized/active)
   adapter install <id> --requester <label>
@@ -75,6 +76,12 @@ commands:
   handoff --to <label> [--next <text>] --requester <label>
   semantic status|index|rebuild    local SQLite semantic memory (subordinate; never authoritative)
   semantic query --q <text> [--limit <n>]
+  export --out <file>             write the complete authoritative state as one verified bundle
+                                  (runtime state, session capabilities, locks and semantic memory never travel;
+                                  reports whether a plain Git clone of HEAD would carry this state)
+  import --bundle <file> [--expect-digest <bundleDigest>] [--force-unlock]
+                                  verify a bundle, then adopt it into this working copy all-or-nothing
+                                  (refuses tampered, incomplete, stale, divergent or unrelated state)
   version
 `;
 
@@ -175,6 +182,21 @@ export async function run(argv: readonly string[], io: CliIo): Promise<number> {
       }
       case "uninstall": {
         json(await uninstall(selectPlatform(), io.cwd));
+        return 0;
+      }
+      case "export": {
+        const project = await openProject(io.cwd);
+        json(await exportProject(project, nodePath.resolve(io.cwd, required(flags, "out"))));
+        return 0;
+      }
+      case "import": {
+        const expect = text(flags, "expect-digest");
+        json(
+          await importProject(io.cwd, required(flags, "bundle"), {
+            ...(expect === undefined ? {} : { expectDigest: expect }),
+            forceUnlock: flags.get("force-unlock") === true,
+          }),
+        );
         return 0;
       }
       case "adapter": {

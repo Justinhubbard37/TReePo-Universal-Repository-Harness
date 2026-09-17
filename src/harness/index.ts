@@ -18,6 +18,7 @@ import { acquireLock, clearStaleLock, type ClearStaleLockResult } from "../core/
 import { publishTransition, type BuildContext, type PublishPhase, type PublishResult } from "../core/tx/publish.ts";
 import { recoverIncomplete, type RecoveryReport } from "../core/tx/recover.ts";
 import { classifyInstall, type InstallState } from "../bootstrap/preflight.ts";
+import { exportBundle, importBundle, recoverImport, type ExportResult, type ImportOptions, type ImportRecovery, type ImportResult } from "../transport/index.ts";
 import { selectPlatform, type Platform, type SelectPlatformOptions } from "../platform/index.ts";
 
 export interface Project {
@@ -142,6 +143,8 @@ export interface RecoverOptions {
 export interface RecoverResult {
   readonly unlock: ClearStaleLockResult | null;
   readonly recovery: RecoveryReport;
+  /** Outcome for an interrupted transport import, or null when none was pending. */
+  readonly transport: ImportRecovery | null;
   readonly validation: ValidationReport;
 }
 
@@ -150,8 +153,21 @@ export async function recover(project: Project, options: RecoverOptions = {}): P
   const lock = await acquireLock(project.platform, project.layout);
   try {
     const recovery = await recoverIncomplete(project.platform, project.layout, lock);
-    return { unlock, recovery, validation: await validateAuthoritativeState(project.layout) };
+    const transport = await recoverImport(project.platform, project.layout, lock);
+    return { unlock, recovery, transport, validation: await validateAuthoritativeState(project.layout) };
   } finally {
     await lock.release();
   }
+}
+
+/** Write the complete authoritative state as one verified transport bundle (ED-14). */
+export function exportProject(project: Project, outPath: string): Promise<ExportResult> {
+  return exportBundle(project.platform, project.layout, outPath);
+}
+
+/** Verify a transport bundle and adopt it into the working copy at `cwd` (which need not have TReePo state yet). */
+export function importProject(cwd: string, bundlePath: string, options: ImportOptions & SelectPlatformOptions = {}): Promise<ImportResult> {
+  const platformOptions: SelectPlatformOptions = { ...(options.platform === undefined ? {} : { platform: options.platform }), ...(options.faults === undefined ? {} : { faults: options.faults }) };
+  const importOptions: ImportOptions = { ...(options.expectDigest === undefined ? {} : { expectDigest: options.expectDigest }), ...(options.forceUnlock === undefined ? {} : { forceUnlock: options.forceUnlock }) };
+  return importBundle(selectPlatform(platformOptions), cwd, bundlePath, importOptions);
 }
