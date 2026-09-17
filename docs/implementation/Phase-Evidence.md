@@ -482,3 +482,38 @@ The writer lock is an exclusive-create lock file. Ownership is verified immediat
 ### Status after the correction
 
 `TRP-AC-L3` records the correction and its proof. It is **not** acceptance: Phase Zero re-audit decides. `TRP-BLD-004` and `TRP-SEM-10` remain IN-PROGRESS; L.6 remains Phase 11.
+
+## Phase 10 — S12 Windows acceptance
+
+| Item | Value |
+|---|---|
+| Date (UTC) | 2026-09-17 |
+| Starting checkpoint | `682a21eabd7f619e72087695821ab1a0907b1bb2` (accepted Phase 9 correction); parent `82ba9d19e996930ec9ade21d600589bf3e352675` |
+| Environment | Microsoft Windows 11 Home Insider Preview 10.0.26220 build 26220, 64-bit; local `C:` NTFS fixed/healthy working copy; Git 2.54.0.windows.1; Node.js 24.19.0; npm 11.17.0; TypeScript 6.0.3 |
+| Repository | `C:\Users\justi\Desktop\Claude Desktop\TReePo-Fable`, branch `fable/implementation` |
+| Preflight | Exact accepted HEAD/parent verified; accepted ancestry `3caa22a`, `14a9d01`, `82ba9d1` verified; protected surfaces unchanged; Phase 10 and Phase 11 absent before execution |
+| Baseline before Phase 10 implementation | `npm run check`: typecheck PASS; **252 tests / 47 suites: 252 pass, 0 fail, 0 skipped, 0 cancelled**; working tree remained clean. Preserved as `evidence/phase-10/00-baseline-check.log` |
+| Acceptance command | `npm run accept` |
+| Primary A–L acceptance subset | **232 tests / 41 suites: 232 pass, 0 fail, 0 skipped, 0 cancelled, 0 todo** |
+| Supplemental full regression | **252 tests / 47 suites: 252 pass, 0 fail, 0 skipped, 0 cancelled, 0 todo** |
+| Committed report | `docs/implementation/acceptance/windows-ntfs.md`; SHA-256 `c94cfd9ddf92fef46a243a0529533995880a35b69d8b72ad6a109bebb0b8f4d0` |
+| Raw execution log | `evidence/phase-10/windows-acceptance-20260917T114103063Z.log`; SHA-256 `6ed972a312fd68fcb6da773d30035292b56857bf6c2ad9e0633df098e96000da`; ignored and delivered outside the repository |
+| Result | **EXECUTION PASS — candidate evidence only; not Director or Phase Zero acceptance** |
+
+### Delivered
+
+- `test/acceptance/run.ts` implements the S12 acceptance runner authorized by the implementation plan.
+- `npm run accept` performs pinned-toolchain typecheck, the contract-specific A–L acceptance subset, and a separate supplemental full regression run.
+- The runner records the exact Windows environment, repository/filesystem location, commands, exact totals, contract-to-evidence mapping, protected-invariant mapping, claim limits, protected-surface status, and Phase 11 boundary.
+- `docs/implementation/acceptance/windows-ntfs.md` is the committed human-readable Windows acceptance report; raw logs remain under ignored `evidence/phase-10/`.
+
+### Phase boundary and honest limits
+
+- Phase 10 proves only the Windows 11/local-NTFS side of BLD-005.
+- Acceptance L.6 and M.4 cross-environment transport remain Phase 11.
+- Acceptance M.2 remains Phase 11.
+- Acceptance M.3 is only partially complete: the Windows per-environment report exists; the required WSL2 report remains Phase 11.
+- The primary A–L acceptance subset is the contract-specific proof. The 252-test full regression supplements it and does not substitute for required acceptance evidence.
+- No Phase 11 execution occurred.
+- No protected governing surface changed.
+- This Phase 10 result is a candidate submission for independent Phase Zero audit; it does not declare acceptance.

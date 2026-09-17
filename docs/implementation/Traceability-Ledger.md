@@ -281,17 +281,17 @@
 
 | ID | Governing source | Requirement (pointer) | Implementation | Test | Evidence | Status |
 |---|---|---|---|---|---|---|
-| TRP-AC-J1 | AC J.1 | Core lifecycle/state/path/schema/package implement only permitted generic behavior | S12 | `test/static/core-boundary.test.ts` | `Phase-Evidence.md` §Phase 1: core-boundary static scan skeleton passes | IN-PROGRESS |
-| TRP-AC-J2 | AC J.2 | Workflow semantics outside core | — | same | `Phase-Evidence.md` §Phase 1: core-boundary static scan skeleton passes | IN-PROGRESS |
-| TRP-AC-J3 | AC J.3 | No literal `Director` role in core | token scan | `#no-director-token` | `Phase-Evidence.md` §Phase 1: no-`Director`-token scan passes | IN-PROGRESS |
-| TRP-AC-J4 | AC J.4 | Discretion only within open boundaries | ED register cross-check (§11 below) | review | — | PLANNED |
-| TRP-AC-J5 | AC J.5 | Acceptance by required evidence; regression suites supplement only | acceptance runner tags | report | — | PLANNED |
+| TRP-AC-J1 | AC J.1 | Core lifecycle/state/path/schema/package implement only permitted generic behavior | S12 | `test/static/core-boundary.test.ts` | `docs/implementation/acceptance/windows-ntfs.md` | IMPLEMENTED |
+| TRP-AC-J2 | AC J.2 | Workflow semantics outside core | — | same | `docs/implementation/acceptance/windows-ntfs.md` | IMPLEMENTED |
+| TRP-AC-J3 | AC J.3 | No literal `Director` role in core | token scan | `#no-director-token` | `docs/implementation/acceptance/windows-ntfs.md` | IMPLEMENTED |
+| TRP-AC-J4 | AC J.4 | Discretion only within open boundaries | ED register cross-check (§11 below) | review | `docs/implementation/acceptance/windows-ntfs.md` | IMPLEMENTED |
+| TRP-AC-J5 | AC J.5 | Acceptance by required evidence; regression suites supplement only | acceptance runner tags | report | `docs/implementation/acceptance/windows-ntfs.md` | IMPLEMENTED |
 
 ### K. Claim limits
 
 | ID | Governing source | Requirement (pointer) | Implementation | Test | Evidence | Status |
 |---|---|---|---|---|---|---|
-| TRP-AC-K1 | AC K | Acceptance does not establish the eight listed broader claims | report "Claims not made" section | review | — | PLANNED |
+| TRP-AC-K1 | AC K | Acceptance does not establish the eight listed broader claims | report "Claims not made" section | review | `docs/implementation/acceptance/windows-ntfs.md` | IMPLEMENTED |
 
 ### L. Transport
 
@@ -309,9 +309,9 @@
 
 | ID | Governing source | Requirement (pointer) | Implementation | Test | Evidence | Status |
 |---|---|---|---|---|---|---|
-| TRP-AC-M1 | AC M | Same suite A–L in Windows 11 NTFS | acceptance runner | full run | — | PLANNED |
+| TRP-AC-M1 | AC M | Same suite A–L in Windows 11 NTFS | acceptance runner | full run | `docs/implementation/acceptance/windows-ntfs.md` | IMPLEMENTED |
 | TRP-AC-M2 | AC M | Same suite in Ubuntu WSL2 ext4 (not `/mnt/c`) | fresh clone; `stat -f` check | full run | — | PLANNED (depends on Director decision D-1) |
-| TRP-AC-M3 | AC M | Per-environment versions, location, toolchain, commands, totals, invariant map | report generator | report | — | PLANNED |
+| TRP-AC-M3 | AC M | Per-environment versions, location, toolchain, commands, totals, invariant map | report generator | report | Windows: `docs/implementation/acceptance/windows-ntfs.md`; WSL2 pending Phase 11 | IN-PROGRESS |
 | TRP-AC-M4 | AC M | Transport directions demonstrated across the pair | AC-L6 | report | — | PLANNED |
 
 ### N. Evidence boundary
