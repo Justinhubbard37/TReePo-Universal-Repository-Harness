@@ -1,0 +1,215 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#000000" />
+  <meta name="description" content="TReePo — Universal Repository Harness. A conceptual systems visualization." />
+  <title>TReePo — Universal Repository Harness</title>
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <a class="skip-link" href="#journey">Skip to interactive system</a>
+  <canvas id="system-canvas" aria-hidden="true"></canvas>
+  <div class="noise" aria-hidden="true"></div>
+  <div class="edge-vignette" aria-hidden="true"></div>
+
+  <header class="site-header" aria-label="TReePo presentation navigation">
+    <a class="wordmark" href="#presence" aria-label="TReePo home">
+      <span class="wordmark-mark" aria-hidden="true"></span>
+      <span>TReePo</span>
+    </a>
+    <div class="header-meta">
+      <span class="system-pill">CONCEPTUAL SIMULATION</span>
+      <a href="#resolution">END STATE</a>
+    </div>
+  </header>
+
+  <main>
+    <section id="presence" class="act act-presence" data-act="presence" aria-labelledby="presence-title">
+      <div class="hero-content reveal">
+        <p class="eyebrow">UNIVERSAL REPOSITORY HARNESS</p>
+        <h1 id="presence-title">TReePo</h1>
+        <p class="hero-sub">Continuity, authority, and recovery represented as one coherent system.</p>
+        <div class="hero-rule" aria-hidden="true"><span></span></div>
+        <a class="enter-link" href="#journey">ENTER SYSTEM <span aria-hidden="true">↓</span></a>
+      </div>
+      <div class="coordinate readout" aria-hidden="true">STATE / 00 · PRESENCE</div>
+    </section>
+
+    <section id="journey" class="act act-journey" data-act="journey" aria-labelledby="journey-title">
+      <div class="act-label reveal">
+        <span>01</span>
+        <p>CONTROL SURFACE</p>
+      </div>
+
+      <div class="journey-shell reveal" id="journey-shell">
+        <div class="journey-head">
+          <div>
+            <p class="eyebrow">CONCEPTUAL USER JOURNEY</p>
+            <h2 id="journey-title">Intent becomes governed execution.</h2>
+          </div>
+          <div class="phase-rail" aria-label="Simulation phases">
+            <span data-phase="goal" class="active">GOAL</span>
+            <span data-phase="route">ROUTE</span>
+            <span data-phase="verify">VERIFY</span>
+            <span data-phase="authority">AUTHORIZE</span>
+            <span data-phase="execute">EXECUTE</span>
+          </div>
+        </div>
+
+        <div class="sim-layout">
+          <div class="sim-copy" id="sim-copy" aria-live="polite">
+            <div class="sim-step active" data-step="goal">
+              <p class="system-kicker">GOAL / HUMAN INTENT</p>
+              <h3>What do you want to accomplish?</h3>
+              <p class="support">Choose a goal. The selection becomes input to routing; it does not grant authority.</p>
+              <div class="goal-list" role="group" aria-label="Example goals">
+                <button class="goal-option" data-goal="continue">
+                  <span class="goal-index">01</span>
+                  <span>Continue from the last accepted checkpoint</span>
+                </button>
+                <button class="goal-option" data-goal="inspect">
+                  <span class="goal-index">02</span>
+                  <span>Inspect the project before making changes</span>
+                </button>
+                <button class="goal-option" data-goal="implement">
+                  <span class="goal-index">03</span>
+                  <span>Begin a governed implementation workflow</span>
+                </button>
+              </div>
+            </div>
+
+            <div class="sim-step" data-step="route" hidden>
+              <p class="system-kicker">ROUTE / AI INTERPRETATION</p>
+              <h3>INTENT RECOGNIZED</h3>
+              <div class="state-band"><span id="selected-goal-label">GOAL</span></div>
+              <div class="route-stack">
+                <span>CONTINUITY WORKFLOW</span>
+                <strong>CAPABILITY MATCHED</strong>
+              </div>
+              <p class="support">Interpretation proposes a capability. Technical validity is established next.</p>
+            </div>
+
+            <div class="sim-step" data-step="verify" hidden>
+              <p class="system-kicker">VERIFY / DETERMINISTIC CHECKS</p>
+              <h3>Capability passes the gates.</h3>
+              <div class="verify-list" aria-label="Deterministic verification checks">
+                <div data-check="0"><span>INSTALLED</span><b>—</b></div>
+                <div data-check="1"><span>APPLICABLE</span><b>—</b></div>
+                <div data-check="2"><span>COMPATIBLE</span><b>—</b></div>
+                <div data-check="3"><span>PREREQUISITES</span><b>—</b></div>
+              </div>
+              <p class="support">Verification is mechanical. The earlier interpretation cannot substitute for these facts.</p>
+            </div>
+
+            <div class="sim-step" data-step="authority" hidden>
+              <p class="system-kicker">AUTHORITY / CONSEQUENCE BOUNDARY</p>
+              <h3 id="authority-title">GOVERNED STATE MUTATION DETECTED</h3>
+              <p class="authority-status" id="authority-status">AUTHORIZATION REQUIRED</p>
+              <button id="authorize-button" class="authorize-button">AUTHORIZE</button>
+              <p class="support" id="authority-support">Technical applicability does not manufacture permission.</p>
+            </div>
+
+            <div class="sim-step" data-step="execute" hidden>
+              <p class="system-kicker">EXECUTE / GOVERNED WORK</p>
+              <h3 id="execute-title">AUTHORIZED</h3>
+              <p class="workflow-active" id="workflow-active">WORKFLOW ACTIVE</p>
+              <p class="support">The system can now proceed inside the authority actually established.</p>
+              <button id="reset-button" class="text-button">RUN ANOTHER PATH</button>
+            </div>
+          </div>
+
+          <div class="sim-visual" aria-hidden="true">
+            <div class="focus-object" id="focus-object">
+              <span class="focus-ring ring-a"></span>
+              <span class="focus-ring ring-b"></span>
+              <span class="focus-core"></span>
+              <span class="focus-label" id="focus-label">AWAITING GOAL</span>
+            </div>
+            <div class="sim-axis"><span>INTERPRET</span><span>VERIFY</span><span>AUTHORITY</span></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="logic-strip reveal" aria-label="Governing TReePo logic">
+        <span>HUMAN INTENT</span><i>→</i><span>AI INTERPRETATION</span><i>→</i><span>DETERMINISTIC VERIFICATION</span><i>→</i><span>HUMAN AUTHORITY WHEN REQUIRED</span><i>→</i><span>GOVERNED EXECUTION</span>
+      </div>
+    </section>
+
+    <section id="instability" class="act act-instability" data-act="instability" aria-labelledby="instability-title">
+      <div class="act-copy reveal">
+        <p class="eyebrow">02 / INSTABILITY</p>
+        <h2 id="instability-title">CONTEXT IS TEMPORARY.</h2>
+        <p class="quiet">Sessions fragment. Working position drifts. Context loses certainty.</p>
+      </div>
+      <div class="statement reveal"><span>STATE IS NOT.</span></div>
+      <div class="coordinate readout" aria-hidden="true">STATE / 02 · FRAGMENTATION</div>
+    </section>
+
+    <section id="structure" class="act act-structure" data-act="structure" aria-labelledby="structure-title">
+      <div class="act-label reveal"><span>03</span><p>STRUCTURE</p></div>
+      <div class="structure-copy reveal">
+        <p class="eyebrow">AUTHORITATIVE POSITION</p>
+        <h2 id="structure-title">A project can carry its own continuity.</h2>
+        <div class="structure-terms" aria-label="TReePo structural concepts">
+          <span>AUTHORITATIVE STATE</span>
+          <span>LINEAGE</span>
+          <span>CHECKPOINTS</span>
+          <span>PROVENANCE</span>
+          <span>AUTHORITY</span>
+          <span>CONTINUATION</span>
+        </div>
+      </div>
+      <aside class="state-ledger reveal" aria-label="Conceptual state ledger">
+        <div><span>CURRENT</span><b>CP-04</b></div>
+        <div><span>PARENT</span><b>CP-03</b></div>
+        <div><span>LINEAGE</span><b>VALID</b></div>
+        <div><span>NEXT</span><b>CONTINUE</b></div>
+      </aside>
+    </section>
+
+    <section id="failure" class="act act-failure" data-act="failure" aria-labelledby="failure-title">
+      <div class="failure-copy reveal">
+        <p class="eyebrow">04 / PROOF THROUGH FAILURE</p>
+        <h2 id="failure-title">Wrong transitions fail closed.</h2>
+        <p class="quiet">Divergence is not accepted just because a session wants to continue.</p>
+      </div>
+      <div class="failure-event reveal" aria-live="polite">
+        <span class="event-code">DIVERGENT STATE</span>
+        <strong>REJECTED</strong>
+      </div>
+      <div class="coordinate readout" aria-hidden="true">STATE / 04 · CONFLICT</div>
+    </section>
+
+    <section id="recovery" class="act act-recovery" data-act="recovery" aria-labelledby="recovery-title">
+      <div class="blackout-stage" id="blackout-stage">
+        <div class="survivor" id="survivor"><span></span><b>CURRENT</b></div>
+        <div class="recovery-copy reveal">
+          <p class="eyebrow">RECOVERY</p>
+          <h2 id="recovery-title">The session was never the source of truth.</h2>
+          <p class="quiet">Authoritative project state survives the loss of ephemeral session context.</p>
+        </div>
+      </div>
+    </section>
+
+    <section id="resolution" class="act act-resolution" data-act="resolution" aria-labelledby="resolution-title">
+      <div class="resolution-content reveal">
+        <p class="eyebrow">05 / RESOLUTION</p>
+        <h2 id="resolution-title">TReePo</h2>
+        <p class="resolution-sub">Universal Repository Harness</p>
+        <div class="resolution-rule" aria-hidden="true"></div>
+        <p class="resolution-line">Built to make continuation deterministic.</p>
+        <p class="simulation-note">This experience is a conceptual simulation. It is not inspecting your repository.</p>
+      </div>
+      <div class="coordinate readout" aria-hidden="true">STATE / 05 · COHERENT</div>
+    </section>
+  </main>
+
+  <footer>
+    <span>TReePo / SYSTEM PRESENTATION</span>
+    <span>NO REPOSITORY DATA ACCESSED</span>
+  </footer>
+  <script src="./main.js"></script>
+</body>
+</html>
