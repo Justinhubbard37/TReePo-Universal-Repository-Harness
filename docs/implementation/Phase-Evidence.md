@@ -517,3 +517,97 @@ The writer lock is an exclusive-create lock file. Ownership is verified immediat
 - No Phase 11 execution occurred.
 - No protected governing surface changed.
 - This Phase 10 result is a candidate submission for independent Phase Zero audit; it does not declare acceptance.
+
+
+---
+
+## Phase 11 — Ubuntu/WSL2 acceptance and cross-environment transport
+
+| Item | Value |
+|---|---|
+| Date (UTC) | 2026-09-19 |
+| Starting checkpoint | `8aad4a0bc22dabe76b1a15cf509f6dd18fbd73ee` (Phase 10 candidate accepted by Phase Zero); parent `682a21eabd7f619e72087695821ab1a0907b1bb2` |
+| Environment | Ubuntu 26.04 LTS under WSL2; kernel `6.18.33.1-microsoft-standard-WSL2`; repository `/home/heathen/TReePo-Fable-Phase11` on `/dev/sdd` `ext4`; Git 2.53.0 |
+| Runtime/toolchain | Official Node.js `24.19.0` Linux x64 user-local install; archive SHA-256 `14b342e71204f811bde6153be8e04b62aef63c236fef92b55f9c83154b409647`; npm 11.17.0; TypeScript 6.0.3 |
+| Baseline before Phase 11 runner change | `npm run check`: typecheck PASS; **252 tests / 47 suites: 252 pass, 0 fail, 0 skipped, 0 cancelled, 0 todo**; clean tracked worktree |
+| Acceptance command | `npm run accept` |
+| Primary A–L acceptance subset | **232 tests / 41 suites: 232 pass, 0 fail, 0 skipped, 0 cancelled, 0 todo** |
+| Supplemental full regression | **252 tests / 47 suites: 252 pass, 0 fail, 0 skipped, 0 cancelled, 0 todo** |
+| Committed report | `docs/implementation/acceptance/wsl2-linux.md` |
+| Raw evidence | `evidence/phase-11/01-linux-full-check.log`; generated WSL acceptance log; `02-acceptance-console.log`; `03-win-to-wsl-receiver-verification.log`; `04-wsl-to-win-receiver-verification.log`; `05-cross-environment-transport-summary.log` (ignored; delivered outside repository) |
+| Result | **EXECUTION PASS — candidate evidence only; not Director or Phase Zero acceptance** |
+
+### Acceptance-runner bounded correction
+
+The accepted Phase 10 runner was Windows-only (`process.platform !== "win32"` refused all other platforms), so it could not execute the already-governed Phase 11 WSL acceptance requirement. Phase 11 made one bounded test-harness correction in `test/acceptance/run.ts`:
+
+- retained the existing Windows path;
+- added Ubuntu/WSL2 detection from `/etc/os-release` and `uname -r`;
+- refused `/mnt` / `/mnt/*` repository locations;
+- required native `ext4` using `findmnt`;
+- generated the Phase 11 WSL environment/report path while preserving the Phase 10 Windows report path;
+- kept L.6/M.4 explicitly separate from the acceptance runner because those require actual cross-environment transport execution.
+
+No core transport, state, authority, hydration, semantic, adapter or workflow implementation was changed for this correction.
+
+### Ubuntu/WSL2 acceptance result
+
+The fresh Phase 11 clone was created at `/home/heathen/TReePo-Fable-Phase11`, not under `/mnt/c`, with exact starting HEAD `8aad4a0bc22dabe76b1a15cf509f6dd18fbd73ee`. Native Linux filesystem proof reported `/dev/sdd` / `ext4`. The pinned Linux Node runtime was installed user-locally without `sudo`, `apt`, Docker, or host-wide mutation.
+
+`npm run accept` completed successfully:
+
+- typecheck: PASS;
+- primary A–L contract subset: 232/232;
+- full regression: 252/252;
+- no failed, skipped, cancelled or todo tests.
+
+This supplies the Ubuntu/WSL2 side of BLD-005, M.2, and the missing WSL portion of M.3.
+
+### L.6 / M.4 — governed Windows ↔ WSL2 transport proof
+
+A disposable Git repository with fixed HEAD `5bfa0e7903e5b8370cda278b24594d83fa8c8cd3` was used so transport behavior could be demonstrated independently of the implementation repository.
+
+#### Windows → WSL2
+
+- Windows NTFS origin initialized governed TReePo continuity and advanced to paused seq `7`.
+- Export digest: `986f39906c98e117931a16205736e99e3716ad28f06c1a237a7204facaf73dae`.
+- Exported state: `443be75cebf30c2a295442864d83cd2a591843a0c06bb6324ccb26922d998720`; chain length `8`.
+- Export explicitly reported `clone.carriesCurrentState=false`.
+- Fresh Ubuntu/WSL2 native-ext4 receiver had no `.treepo` state before import.
+- `treepo import --expect-digest` reconstructed and mechanically validated the exact seq-7 state/root.
+- Orientation recovered the exact paused next action, workflow position and Windows-origin completion record.
+- Semantic memory was absent (`health: missing`) while authoritative continuity remained valid.
+- Receiving worktree identity differed from the Windows origin, but the recorded Git HEAD/branch matched and validation succeeded.
+- WSL then used newly authorized `resume` and the transported authority/state to continue the same lineage through resume, progress, checkpoint and pause.
+
+#### WSL2 → Windows
+
+- WSL successor paused at seq `13`, state `72c72fd5b1bd5df74e0a75f31e9935469fb7b25dbb565b53295405fca6f77c61`.
+- Return export digest: `808c9f0cc5ed0fa0a336e3b8cdc9f5b6fc43fc801589b22a82c59fd6c5bd3855`; chain length `14`.
+- The return bundle added six governed states after the original Windows export and preserved root `7307693e6dc9b81039335e32cc00fba0570063c2bfdbb0e4b00149822801e90c`.
+- Fresh Windows NTFS receiver had no `.treepo` state before import.
+- Import reconstructed and mechanically validated the exact seq-13 state and all 14 state objects.
+- Orientation recovered both completed items (`windows-origin`, `wsl-continuation`), both checkpoints, the WSL-created `resume` authorization, exact paused next action and workflow position.
+- Semantic memory again remained absent while `continuity.ok=true`.
+- Final receiver state exactly matched the WSL export state.
+
+Machine-derived summary evidence additionally confirmed:
+
+- original Windows seq-7 imported state remains an ancestor of the WSL seq-13 successor;
+- return state matches the Windows receiver exactly;
+- roots match;
+- neither transport manifest contains a `runtime/` path.
+
+### Phase 11 disposition
+
+Execution evidence now covers:
+
+- M.2: Ubuntu WSL2 native-ext4 acceptance run;
+- M.3: per-environment versions, location, toolchain, commands, totals and invariant mapping for both supported environments;
+- L.6: governed transport between Windows NTFS and Ubuntu/WSL2 ext4 in both directions;
+- M.4: both transport directions demonstrated;
+- BLD-004 cross-environment transport portion;
+- BLD-005 two-environment acceptance portion;
+- SEM §10 two-environment semantic-memory boundary: semantic SQLite remains runtime-only/non-transported and its absence does not block authoritative continuation.
+
+This is implementation/execution evidence only. Independent Phase Zero audit and Director acceptance remain external gates. Phase 12 was not started.

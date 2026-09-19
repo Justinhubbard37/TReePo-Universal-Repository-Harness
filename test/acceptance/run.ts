@@ -86,7 +86,27 @@ function windowsEnvironment(repoRoot: string): Record<string, string> {
   if (result["FileSystem"] !== "NTFS" || result["DriveType"] !== "Fixed") throw new Error(`Phase 10 requires local NTFS/Fixed; observed ${result["FileSystem"] ?? "unknown"}/${result["DriveType"] ?? "unknown"}`);
   return result;
 }
-function contractMap(): string {
+function linuxEnvironment(repoRoot: string): Record<string, string> {
+  if (repoRoot === "/mnt" || repoRoot.startsWith("/mnt/")) throw new Error(`Phase 11 requires a native Linux-filesystem working copy; observed ${repoRoot}`);
+  const osRelease = readFileSync("/etc/os-release", "utf8");
+  const distroId = /^ID="?([^"\n]+)"?$/m.exec(osRelease)?.[1] ?? "unknown";
+  if (distroId !== "ubuntu") throw new Error(`Phase 11 requires Ubuntu under WSL2; observed distro ${distroId}`);
+  const pretty = /^PRETTY_NAME=(?:"([^"]+)"|([^\n]+))$/m.exec(osRelease);
+  const kernel = shell("uname -r");
+  if (!/microsoft.*wsl2/i.test(kernel)) throw new Error(`Phase 11 requires Ubuntu under WSL2; observed kernel ${kernel}`);
+  const mountRaw = execFileSync("findmnt", ["-T", repoRoot, "-n", "-o", "TARGET,SOURCE,FSTYPE"], { encoding: "utf8" }).trim();
+  const [mountTarget = "", mountSource = "", fileSystem = ""] = mountRaw.split(/\s+/);
+  if (fileSystem !== "ext4") throw new Error(`Phase 11 requires native Linux ext4; observed ${fileSystem || "unknown"} at ${repoRoot}`);
+  return {
+    Caption: pretty?.[1] ?? pretty?.[2] ?? "Ubuntu",
+    Version: /^VERSION_ID="?([^"\n]+)"?$/m.exec(osRelease)?.[1] ?? "unknown",
+    Kernel: kernel,
+    FileSystem: fileSystem,
+    MountTarget: mountTarget,
+    MountSource: mountSource,
+  };
+}
+function contractMap(environmentLabel: string): string {
   return [
     "| Contract | Primary acceptance evidence |", "|---|---|",
     "| A | `init`, `install`, `git-adapter`, `cli` tests |",
@@ -100,8 +120,8 @@ function contractMap(): string {
     "| I | hydration / ROUTINE_DELTA tests |",
     "| J | core-boundary static test; J.4/J.5 review in this report/ledger |",
     "| K | `Claims not made` section of this report |",
-    "| L | transport bundle/integration/fault/lock/fresh-agent/static tests; L.6 remains Phase 11 |",
-    "| M (Windows) | this runner's environment record and exact totals; M.2/M.4 remain Phase 11 |",
+    "| L | transport bundle/integration/fault/lock/fresh-agent/static tests; L.6 requires the separate cross-environment transport demonstration |",
+    `| M (${environmentLabel}) | this runner's environment record and exact totals; M.4 requires the separate cross-environment transport demonstration |`,
     "| N | ignored raw log + committed report; claims remain evidence-bounded |",
   ].join("\n");
 }
@@ -135,13 +155,19 @@ const CLAIMS = [
 ] as const;
 
 async function main(): Promise<void> {
-  if (process.platform !== "win32") throw new Error(`Phase 10 runner is Windows-only; observed ${process.platform}. Phase 11 has not started.`);
+  if (process.platform !== "win32" && process.platform !== "linux") throw new Error(`Acceptance runner supports only the two BLD-005 execution platforms; observed ${process.platform}.`);
   const repoRoot = resolve(git(["rev-parse", "--show-toplevel"])); process.chdir(repoRoot);
   const pinned = readFileSync(join(repoRoot, ".node-version"), "utf8").trim();
   if (pinned !== PINNED_NODE || process.versions.node !== PINNED_NODE) throw new Error(`Pinned runtime mismatch: .node-version=${pinned}; runtime=${process.versions.node}`);
-  const env = windowsEnvironment(repoRoot); const started = new Date();
-  const logPath = join(repoRoot, "evidence", "phase-10", `windows-acceptance-${stamp(started)}.log`); mkdirSync(dirname(logPath), { recursive: true });
-  const log = createWriteStream(logPath, { flags: "wx" }); log.write(`TReePo Phase 10 Windows acceptance\nstarted=${started.toISOString()}\nrepo=${repoRoot}\n`);
+  const isWindows = process.platform === "win32";
+  const phase = isWindows ? "phase-10" : "phase-11";
+  const environmentLabel = isWindows ? "Windows" : "WSL2/Linux";
+  const reportFile = isWindows ? "windows-ntfs.md" : "wsl2-linux.md";
+  const logStem = isWindows ? "windows" : "wsl2-linux";
+  const env = isWindows ? windowsEnvironment(repoRoot) : linuxEnvironment(repoRoot);
+  const started = new Date();
+  const logPath = join(repoRoot, "evidence", phase, `${logStem}-acceptance-${stamp(started)}.log`); mkdirSync(dirname(logPath), { recursive: true });
+  const log = createWriteStream(logPath, { flags: "wx" }); log.write(`TReePo ${isWindows ? "Phase 10 Windows" : "Phase 11 WSL2/Linux"} acceptance\nstarted=${started.toISOString()}\nrepo=${repoRoot}\n`);
   const tsc = join(repoRoot, "node_modules", "typescript", "bin", "tsc");
   const typecheck = await run(process.execPath, [tsc, "-p", "tsconfig.json"], log);
   if (typecheck.code !== 0) { log.end(); throw new Error(`Typecheck failed; raw evidence preserved at ${relative(repoRoot, logPath)}`); }
@@ -156,14 +182,20 @@ async function main(): Promise<void> {
   const status = git(["status", "--short"]), gitVersion = shell("git --version"), npmVersion = shell("npm --version");
   const tscVersion = execFileSync(process.execPath, [tsc, "--version"], { encoding: "utf8" }).trim();
   const pkg = JSON.parse(readFileSync(join(repoRoot, "package.json"), "utf8")) as { engines?: { node?: string }; devDependencies?: Record<string, string> };
-  const reportPath = join(repoRoot, "docs", "implementation", "acceptance", "windows-ntfs.md"); mkdirSync(dirname(reportPath), { recursive: true });
-  const report = `# TReePo Phase 10 — Windows Acceptance Report\n\n## Result\n\n**EXECUTION PASS — candidate evidence only; this does not declare Director or Phase Zero acceptance.**\n\n` +
+  const reportPath = join(repoRoot, "docs", "implementation", "acceptance", reportFile); mkdirSync(dirname(reportPath), { recursive: true });
+  const reportTitle = isWindows ? "TReePo Phase 10 — Windows Acceptance Report" : "TReePo Phase 11 — Ubuntu/WSL2 Acceptance Report";
+  const environmentSpecific = isWindows
+    ? `- OS: ${env["Caption"]}\n- Version: ${env["Version"]}\n- Build: ${env["BuildNumber"]}\n- Architecture: ${env["OSArchitecture"]}\n- Repository path: \`${repoRoot}\`\n- Filesystem: ${env["FileSystem"]}\n- Drive type: ${env["DriveType"]}\n- Drive health: ${env["HealthStatus"]}`
+    : `- OS: ${env["Caption"]}\n- Version: ${env["Version"]}\n- Kernel: ${env["Kernel"]}\n- Repository path: \`${repoRoot}\`\n- Filesystem: ${env["FileSystem"]}\n- Mount target: \`${env["MountTarget"]}\`\n- Mount source: \`${env["MountSource"]}\``;
+  const report = `# ${reportTitle}\n\n## Result\n\n**EXECUTION PASS — candidate evidence only; this does not declare Director or Phase Zero acceptance.**\n\n` +
     `- Run started (UTC): \`${started.toISOString()}\`\n- Branch: \`${branch}\`\n- Starting HEAD: \`${head}\`\n- Parent: \`${parent}\`\n- Raw log: \`${relative(repoRoot, logPath).replaceAll("\\", "/")}\` (ignored; delivered outside repository)\n\n` +
-    `## Environment\n\n- OS: ${env["Caption"]}\n- Version: ${env["Version"]}\n- Build: ${env["BuildNumber"]}\n- Architecture: ${env["OSArchitecture"]}\n- Repository path: \`${repoRoot}\`\n- Filesystem: ${env["FileSystem"]}\n- Drive type: ${env["DriveType"]}\n- Drive health: ${env["HealthStatus"]}\n- Git: \`${gitVersion}\`\n- Node: \`${process.version}\` (pin \`${pkg.engines?.node ?? "unknown"}\`; .node-version \`${pinned}\`)\n- npm: \`${npmVersion}\`\n- TypeScript: \`${tscVersion}\` (pin \`${pkg.devDependencies?.["typescript"] ?? "unknown"}\`)\n\n` +
+    `## Environment\n\n${environmentSpecific}\n- Git: \`${gitVersion}\`\n- Node: \`${process.version}\` (pin \`${pkg.engines?.node ?? "unknown"}\`; .node-version \`${pinned}\`)\n- npm: \`${npmVersion}\`\n- TypeScript: \`${tscVersion}\` (pin \`${pkg.devDependencies?.["typescript"] ?? "unknown"}\`)\n\n` +
     `## Commands executed\n\n1. \`${typecheck.command}\`\n2. \`${acceptance.command}\`\n3. \`${regression.command}\`\n\n` +
     `## Exact results\n\n- Typecheck: PASS (exit 0)\n- Primary A–L acceptance subset: **${primary.pass}/${primary.tests} pass**, ${primary.fail} fail, ${primary.skipped} skipped, ${primary.cancelled} cancelled, ${primary.todo} todo across ${primary.suites} suites.\n- Supplemental full regression: **${full.pass}/${full.tests} pass**, ${full.fail} fail, ${full.skipped} skipped, ${full.cancelled} cancelled, ${full.todo} todo across ${full.suites} suites.\n\nThe full regression run supplements the contract-specific acceptance subset; it does not substitute for required acceptance evidence.\n\n` +
-    `## Contract-to-evidence map\n\n${contractMap()}\n\n## Protected-invariant map\n\n${invariantMap()}\n\n## Claims not made\n\nAcceptance here does **not** establish:\n\n${CLAIMS.map((claim) => `- ${claim};`).join("\n")}\n\n` +
-    `## Scope and phase boundary\n\n- This report proves only the Windows 11/local-NTFS Phase 10 side of BLD-005.\n- L.6, M.2 and M.4 require separately governed Phase 11 WSL2/cross-environment execution and remain unproven here.\n- Phase 11 was not executed by this run.\n- Protected governing-surface changes since \`3caa22a\`: ${protectedChanges === "" ? "none" : `**PRESENT: ${protectedChanges}**`}\n- Working-tree status at report generation:\n\n\`\`\`text\n${status || "<clean>"}\n\`\`\`\n\n## Evidence boundary\n\nThis report records only what this execution mechanically demonstrated. Test success does not create human authority or broaden supported-environment/product claims.\n`;
+    `## Contract-to-evidence map\n\n${contractMap(environmentLabel)}\n\n## Protected-invariant map\n\n${invariantMap()}\n\n## Claims not made\n\nAcceptance here does **not** establish:\n\n${CLAIMS.map((claim) => `- ${claim};`).join("\n")}\n\n` +
+    `## Scope and phase boundary\n\n${isWindows
+      ? "- This report proves only the Windows 11/local-NTFS Phase 10 side of BLD-005.\n- L.6, M.2 and M.4 require separately governed Phase 11 WSL2/cross-environment execution and remain unproven here.\n- Phase 11 was not executed by this run."
+      : "- This report proves the Ubuntu/WSL2 native-Linux-filesystem Phase 11 environment side of BLD-005, including M.2 and the WSL portion of M.3.\n- L.6 and M.4 require the separate governed Windows↔WSL2 transport demonstrations and remain unproven by this acceptance run alone.\n- Phase 12 was not executed by this run."}\n- Protected governing-surface changes since \`3caa22a\`: ${protectedChanges === "" ? "none" : `**PRESENT: ${protectedChanges}**`}\n- Working-tree status at report generation:\n\n\`\`\`text\n${status || "<clean>"}\n\`\`\`\n\n## Evidence boundary\n\nThis report records only what this execution mechanically demonstrated. Test success does not create human authority or broaden supported-environment/product claims.\n`;
   writeFileSync(reportPath, report, { encoding: "utf8", flag: "w" });
   process.stdout.write(`\n--- ACCEPTANCE RESULT ---\nPASS\nreport=${relative(repoRoot, reportPath)}\nraw_log=${relative(repoRoot, logPath)}\n`);
 }
