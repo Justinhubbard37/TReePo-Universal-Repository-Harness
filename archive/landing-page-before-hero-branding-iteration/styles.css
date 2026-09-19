@@ -1,12 +1,9 @@
 :root {
   --black: #000000;
-  --graphite: #363543;
-  --cloudy-sky: #5994d7;
   --surface: #1f1e2a;
   --depth: #4a4958;
   --light: #e1f5f9;
   --muted: #a1a1aa;
-  --mint-leaf: #20bd90;
   --valid: #20bd90;
   --danger: #fa3205;
   --hairline: rgba(225,245,249,.14);
@@ -74,7 +71,6 @@ main { position: relative; z-index: 3; }
 .act-presence { min-height: 120svh; align-items: start; padding-top: 28svh; }
 .hero-content { max-width: 980px; }
 .hero-content h1 { margin: 0; font-size: clamp(76px, 15vw, 210px); line-height: .78; letter-spacing: -.08em; font-weight: 660; text-shadow: 0 0 80px rgba(225,245,249,.06); }
-.hero-brand-accent { color: var(--mint-leaf); text-shadow: 0 0 28px rgba(32,189,144,.10); }
 .hero-sub { margin: 34px 0 0; max-width: 620px; color: var(--muted); font-size: clamp(17px, 2vw, 24px); line-height: 1.5; letter-spacing: -.02em; }
 .hero-rule { width: min(540px, 70vw); height: 1px; background: var(--hairline); margin: 38px 0 24px; overflow: hidden; }
 .hero-rule span { display: block; width: 36%; height: 100%; background: var(--valid); box-shadow: 0 0 18px rgba(32,189,144,.62); }
@@ -170,10 +166,9 @@ main { position: relative; z-index: 3; }
 .survivor span { width: 11px; height: 11px; border-radius: 50%; background: var(--valid); box-shadow: 0 0 28px rgba(32,189,144,.75); }
 .survivor b { color: var(--light); font: 650 10px/1 ui-monospace, monospace; letter-spacing: .18em; }
 .act-recovery.blackout .survivor { opacity: 1; }
-.recovery-copy { align-self: end; width: min(1180px, calc(100% - 44px)); margin-bottom: 18svh; opacity: 0; transform: translateY(24px); transition: 900ms 1100ms cubic-bezier(.16,1,.3,1); }
+.recovery-copy { align-self: end; width: min(1040px, calc(100% - 44px)); margin-bottom: 11svh; opacity: 0; transform: translateY(24px); transition: 900ms 1100ms cubic-bezier(.16,1,.3,1); }
 .act-recovery.reconstructed .recovery-copy { opacity: 1; transform: translateY(0); }
-.act-recovery.reconstructed .survivor { top: 28%; opacity: .58; }
-.recovery-copy h2 { font-size: clamp(46px, 6vw, 84px); line-height: .92; max-width: 1080px; }
+.recovery-copy h2 { font-size: clamp(48px, 7.8vw, 112px); }
 
 .act-resolution { min-height: 130svh; text-align: center; place-items: center; }
 .resolution-content { width: min(860px, 100%); }
@@ -225,3 +220,9 @@ footer { position: relative; z-index: 5; border-top: 1px solid var(--hairline); 
   .reveal { opacity: 1; transform: none; }
   .noise { display: none; }
 }
+
+/* Recovery legibility refinement: the surviving marker remains visible without colliding with the conclusion. */
+.act-recovery.reconstructed .survivor { top: 28%; opacity: .58; }
+.recovery-copy h2 { font-size: clamp(46px, 6.8vw, 94px); line-height: .92; max-width: 1080px; }
+.recovery-copy { width: min(1180px, calc(100% - 44px)); margin-bottom: 18svh; }
+.recovery-copy h2 { font-size: clamp(46px, 6vw, 84px); }
