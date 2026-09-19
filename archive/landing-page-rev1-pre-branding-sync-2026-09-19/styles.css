@@ -74,7 +74,7 @@ main { position: relative; z-index: 3; }
 .act-presence { min-height: 120svh; align-items: start; padding-top: 28svh; }
 .hero-content { max-width: 980px; }
 .hero-content h1 { margin: 0; font-size: clamp(76px, 15vw, 210px); line-height: .78; letter-spacing: -.08em; font-weight: 660; text-shadow: 0 0 80px rgba(225,245,249,.06); }
-.hero-brand-accent, .brand-accent { color: var(--mint-leaf); text-shadow: 0 0 28px rgba(32,189,144,.10); }
+.hero-brand-accent { color: var(--mint-leaf); text-shadow: 0 0 28px rgba(32,189,144,.10); }
 .hero-sub { margin: 34px 0 0; max-width: 620px; color: var(--muted); font-size: clamp(17px, 2vw, 24px); line-height: 1.5; letter-spacing: -.02em; }
 .hero-rule { width: min(540px, 70vw); height: 1px; background: var(--hairline); margin: 38px 0 24px; overflow: hidden; }
 .hero-rule span { display: block; width: 36%; height: 100%; background: var(--valid); box-shadow: 0 0 18px rgba(32,189,144,.62); }
