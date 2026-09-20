@@ -135,6 +135,33 @@ The Phase 11 transport proof used disposable repositories with the same recorded
 
 Ignored supporting evidence: `evidence/phase-11/03-win-to-wsl-receiver-verification.log`, `04-wsl-to-win-receiver-verification.log`, and `05-cross-environment-transport-summary.log`.
 
+## Bounded transport-evidence correction after Phase Zero audit
+
+Phase Zero review of candidate `93e124f54b9f395745913b2678fe3e9eb5ec23ae` found the original cross-environment resulting states technically corroborated but the submitted package insufficient to independently establish that both transfers were performed through governed TReePo `export` / `import` rather than an equivalent selective filesystem copy. This was an evidence defect, not an implementation defect. The original demonstration above remains historical evidence; the following separately preserved correction evidence supplies the missing mechanism trace.
+
+### Corrected Windows → Ubuntu/WSL2 evidence
+
+- Fixture Git HEAD: `973c4cc48cf3360a4ab806035625d114f1495685`.
+- Source paused at seq `7`, state `aa9eec03774b111bb8dfd6aeed0f5072aa5eb2ffbd8917bcc9b166709c09decc`, root `e7584b367bfd5354fe86b3d7b6a67217038c2c0e0036f254c1443c88916b745f`, chain `8`.
+- Canonical bundle digest: `643b4aec084a9639df627731ae1a6e6a8f346b1720b63af2657d45abb6cb5200`.
+- Exact bundle raw SHA-256: `a99312092f5d3405f148b5f9c3a9fa32dcc024a90838b4b9139a5dea51d7e1cf`; `26026` bytes.
+- Fresh native-ext4 WSL2 receiver had `.treepo` absent immediately before import and independently reproduced the same raw bundle SHA-256.
+- Exact import used `--expect-digest 643b4aec084a9639df627731ae1a6e6a8f346b1720b63af2657d45abb6cb5200`; post-import validation/orientation recovered the exact seq/state/root/chain; semantic memory was absent while continuity remained valid.
+- Governed WSL continuation then produced the legitimate seq-13 return state.
+
+### Corrected Ubuntu/WSL2 → Windows evidence
+
+- WSL source paused at seq `13`, state `0d9613c6f37025ded3cc5ca64eb6ceba5d5b05a2e809a9eaa2eda4ce152678bb`, same root, chain `14`.
+- Canonical return bundle digest: `fb0a434965876a94b9aa8fe38a4cd7bd4bcde6e290f77352a1fe048a80396ae4`.
+- Exact return bundle raw SHA-256: `2dec2148c8e2a192b8d5660caa80f449e22f0ad069781d6583a61dc789c942df`; `48700` bytes.
+- Fresh Windows NTFS receiver had `.treepo` absent immediately before import and independently reproduced the same raw bundle SHA-256.
+- Exact import used `--expect-digest fb0a434965876a94b9aa8fe38a4cd7bd4bcde6e290f77352a1fe048a80396ae4`; validation/orientation/current state exactly recover seq `13`, the WSL-created continuation and unchanged root/chain.
+- Both corrected manifests explicitly contain no prohibited runtime/semantic/session/cache surfaces.
+
+Raw correction evidence is under `evidence/phase-11/correction-transport/`. `31-correction-evidence-inventory.log` hashes the complete correction evidence set, while `00-prior-phase11-evidence-sha256.txt` preserves the original Phase 11 evidence identities.
+
+This corrected candidate evidence directly establishes the previously missing mechanism chain for L.6/M.4. **It remains candidate evidence pending independent Phase Zero re-audit and does not itself declare acceptance.** Phase 12 has not started.
+
 ## Evidence boundary
 
 This report records only what this execution mechanically demonstrated. Test success does not create human authority or broaden supported-environment/product claims.

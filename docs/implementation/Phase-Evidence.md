@@ -611,3 +611,44 @@ Execution evidence now covers:
 - SEM §10 two-environment semantic-memory boundary: semantic SQLite remains runtime-only/non-transported and its absence does not block authoritative continuation.
 
 This is implementation/execution evidence only. Independent Phase Zero audit and Director acceptance remain external gates. Phase 12 was not started.
+
+### Phase 11 bounded correction — transport-mechanism evidence
+
+Independent Phase Zero audit of candidate checkpoint `93e124f54b9f395745913b2678fe3e9eb5ec23ae` returned **CORRECTION REQUIRED — evidence-only** for L.6 / M.4. The Ubuntu/WSL2 acceptance result and the transported resulting states were technically sound, but the submitted package did not preserve enough raw evidence to independently establish the mechanism chain `exported bundle bytes → exact bundle digest → governed import command → receiver state`. A selective filesystem copy could otherwise have produced materially similar receiver validation logs. No implementation defect or architecture change was identified, and no `src/**` change is part of this correction.
+
+The original Phase 11 transport demonstration above remains preserved as historical execution evidence. The correction evidence below is a new, separately identified evidence set under `evidence/phase-11/correction-transport/`; `00-prior-phase11-evidence-sha256.txt` records the pre-correction hashes of the original Phase 11 evidence files.
+
+#### Corrected Windows → Ubuntu/WSL2 mechanism proof
+
+- Disposable fixture Git HEAD: `973c4cc48cf3360a4ab806035625d114f1495685`, branch `main`.
+- Windows source environment: Windows 11 Home Insider Preview build `26220`, NTFS, Git `2.54.0.windows.1`, Node `24.19.0`.
+- Governed Windows source advanced to paused seq `7`, state `aa9eec03774b111bb8dfd6aeed0f5072aa5eb2ffbd8917bcc9b166709c09decc`, root `e7584b367bfd5354fe86b3d7b6a67217038c2c0e0036f254c1443c88916b745f`, chain length `8`.
+- Exact governed export is captured in `windows-to-wsl/05-export.log`.
+- Canonical TReePo bundle digest: `643b4aec084a9639df627731ae1a6e6a8f346b1720b63af2657d45abb6cb5200`.
+- Exact exported bundle: `windows-to-wsl/windows-to-wsl-bundle.json`; raw file SHA-256 `a99312092f5d3405f148b5f9c3a9fa32dcc024a90838b4b9139a5dea51d7e1cf`; size `26026` bytes.
+- Decoded manifest and per-file evidence are preserved in `windows-to-wsl/07-bundle-manifest.log`; explicit exclusion check in `windows-to-wsl/08-excluded-surfaces-check.log` reports `FORBIDDEN_MATCH_COUNT=0`.
+- Fresh native-ext4 Ubuntu/WSL2 receiver proof in `09-wsl-receiver-preimport.log` records the matching fixture HEAD/branch and `.treepo` absent immediately before import.
+- Receiver-side SHA-256 in `10-wsl-received-bundle-sha256.log` matches the Windows raw bundle hash exactly.
+- Exact governed import with `--expect-digest 643b4aec084a9639df627731ae1a6e6a8f346b1720b63af2657d45abb6cb5200` and complete result are preserved in `11-windows-to-wsl-import.log`.
+- Independent post-import validation, orientation, semantic status and direct `CURRENT` are preserved in `12-wsl-postimport-validate.log` through `15-wsl-imported-current.log`; they recover seq `7`, the same state/root/chain, semantic memory `missing`, and authoritative continuity valid.
+
+#### Governed WSL continuation before return transport
+
+`16-wsl-governed-continuation.log` records newly authorized WSL-side `resume`, followed by governed resume, progress, checkpoint and pause. `17-wsl-postcheckpoint-orient.log`, `18-wsl-source-preexport-validate.log` and `19-wsl-source-preexport-orient.log` establish the legitimate Linux-side successor before return export: paused seq `13`, state `0d9613c6f37025ded3cc5ca64eb6ceba5d5b05a2e809a9eaa2eda4ce152678bb`, unchanged root `e7584b367bfd5354fe86b3d7b6a67217038c2c0e0036f254c1443c88916b745f`, chain length `14`, and next action `Resume under Windows after governed return import`.
+
+#### Corrected Ubuntu/WSL2 → Windows mechanism proof
+
+- Exact governed return export is captured in `20-wsl-to-windows-export.log`.
+- Canonical TReePo bundle digest: `fb0a434965876a94b9aa8fe38a4cd7bd4bcde6e290f77352a1fe048a80396ae4`.
+- Exact exported bundle: `wsl-to-windows/wsl-to-windows-bundle.json`; raw file SHA-256 `2dec2148c8e2a192b8d5660caa80f449e22f0ad069781d6583a61dc789c942df`; size `48700` bytes.
+- The bundle manifest records seq `13`, state `0d9613c6f37025ded3cc5ca64eb6ceba5d5b05a2e809a9eaa2eda4ce152678bb`, root `e7584b367bfd5354fe86b3d7b6a67217038c2c0e0036f254c1443c88916b745f`, chain length `14`, including the WSL-created continuation states and WSL resume authorization.
+- Fresh Windows NTFS receiver evidence in `wsl-to-windows/22-windows-receiver-preimport.log` and `22b-windows-receiver-preimport-confirmation.log` records matching Git HEAD/branch, clean worktree and `.treepo` absent immediately before import.
+- Windows independently hashed the received bytes in `wsl-to-windows/23-windows-received-bundle-sha256.log`; SHA-256 and byte length match the WSL export exactly.
+- `wsl-to-windows/24-bundle-manifest.log` records the decoded manifest; `25-excluded-surfaces-check.log` reports 21 manifest files and `FORBIDDEN_MATCH_COUNT=0`.
+- Exact governed import with `--expect-digest fb0a434965876a94b9aa8fe38a4cd7bd4bcde6e290f77352a1fe048a80396ae4` is preserved in `wsl-to-windows/26-wsl-to-windows-import.log`; `previous` is `null`, mechanical validation is `ok: true`, and the imported seq/state/root/chain exactly match the exported bundle.
+- Independent post-import validation and orientation in `27-windows-postimport-validate.log` and `28-windows-postimport-orient.log` recover the WSL-created pause, checkpoint, completion record, resume authorization and exact next action. Repository drift is limited to different working-copy identity; HEAD, branch, dirty digest and conflict digest match.
+- `29-windows-postimport-semantic-status.log` records semantic memory `missing` with `continuity.ok=true`.
+- `30-windows-imported-current.log` directly records seq `13` and state `0d9613c6f37025ded3cc5ca64eb6ceba5d5b05a2e809a9eaa2eda4ce152678bb`.
+- `31-correction-evidence-inventory.log` SHA-256 inventories the complete correction evidence set, including both exact Transport bundles.
+
+The correction evidence now directly traces, in both directions, source governed state → exact export command/stdout → exact bundle bytes → raw SHA-256 → decoded manifest → fresh receiver with no `.treepo` → exact governed import with expected canonical digest → independent validation/orientation/current state. This addresses the Phase Zero evidence defect for `TRP-AC-L6` and `TRP-AC-M4` at the candidate-evidence level. **It does not declare those obligations accepted; disposition remains pending independent Phase Zero re-audit.** Phase 12 remains unstarted.
