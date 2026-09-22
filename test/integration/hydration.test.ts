@@ -180,6 +180,51 @@ describe("hydration and the ROUTINE_DELTA fast lane", () => {
     });
   });
 
+  for (const kind of ["tracked", "untracked"] as const) {
+    it(`#hydration-status-preserving-${kind}-invalidates: a ${kind} A→B content change with no git status change invalidates ROUTINE_DELTA and forces full assurance (Astra Finding ${kind === "tracked" ? "A3" : "A4"}; I b.9, RFP-08)`, async () => {
+      await withTempDir(async (dir) => {
+        const { repo, project } = await activeProject(dir);
+        const rel = kind === "tracked" ? "src/app.txt" : "notes/untracked.txt";
+        const porcelain = (): Promise<string> => repo.git(["status", "--porcelain=v2", "-z", "--untracked-files=all"]);
+        // 1. Full hydration while the file already carries dirty content A.
+        await repo.write(rel, "dirty content A\n");
+        const h = await hydrateProject(project);
+        assert.equal(h.assurance, "full");
+        const cap = await readCapability(project.layout);
+        assert.equal(cap.status, "present");
+        if (cap.status !== "present") return;
+        assert.equal(cap.record.workingCopyFingerprint, fingerprintOf((await observe(project)).workingCopy));
+        // Control: with content A unchanged, the token is eligible for the reduced path.
+        const control = evaluateEligibility({ fastLane: true, routineAction: true, token: h.token, capability: cap, nowMs: Date.now(), liveFingerprint: fingerprintOf((await observe(project)).workingCopy), currentStateId: (await requireValidState(project.layout)).current.id, journalsPending: false });
+        assert.deepEqual(control, { eligible: true, reason: "eligible" });
+        const statusA = await porcelain();
+        // 2. Same file becomes content B without any status-category change.
+        await repo.write(rel, "dirty content B: materially different\n");
+        assert.equal(await porcelain(), statusA, "the A→B edit is invisible to git status");
+        // 3. The prior hydration fingerprint no longer matches.
+        const liveFp = fingerprintOf((await observe(project)).workingCopy);
+        assert.notEqual(liveFp, cap.record.workingCopyFingerprint);
+        // 4. The old capability is not eligible.
+        const e = evaluateEligibility({ fastLane: true, routineAction: true, token: h.token, capability: await readCapability(project.layout), nowMs: Date.now(), liveFingerprint: liveFp, currentStateId: (await requireValidState(project.layout)).current.id, journalsPending: false });
+        assert.deepEqual(e, { eligible: false, reason: "binding-mismatch" });
+        // 5–7. The reduced path is not used; full assurance runs every layer and re-hydrates.
+        const seen: string[] = [];
+        const r = await routine(project, { adapterId: CONTINUITY_ID, action: "progress", input: progressInput(), requester: "a", token: h.token, observer: (s) => seen.push(s) });
+        assert.equal(r.path, "full-assurance");
+        assert.equal(r.eligibility.reason, "binding-mismatch");
+        assert.deepEqual(r.skipped, [], "orientation, adapter rediscovery and prerequisites are not skipped");
+        for (const layer of ["1:core-integrity", "2:installed", "3:compatible", "4:environment-prerequisites", "5:workflow-prerequisites", "8:core-transition", "stale-check"]) {
+          assert.ok(seen.includes(layer), `full assurance ran ${layer}: ${seen.join(",")}`);
+        }
+        assert.equal(r.outcome.result.status, "published");
+        assert.ok(r.nextToken);
+        assert.notEqual(r.sessionId, h.sessionId, "eligibility is restored only by a fresh full hydration");
+        const rebound = await readCapability(project.layout);
+        assert.equal(rebound.status === "present" ? rebound.record.workingCopyFingerprint : null, fingerprintOf((await observe(project)).workingCopy), "the new capability binds content B");
+      });
+    });
+  }
+
   it("#hydration-current-rewind-invalidates #wrong-*: wrong copy, wrong checkpoint and wrong secret are rejected by the same binding check (I b.10)", async () => {
     await withTempDir(async (dir) => {
       const { repo, project } = await activeProject(dir);

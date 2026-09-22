@@ -1,4 +1,5 @@
 // Ledger: TRP-RFP-01, TRP-RFP-02, TRP-RFP-03, TRP-RFP-07 (runtime exclusion) with Git-observed facts (ED-18).
+// Ledger: TRP-ARCH-12, TRP-INV-06 (stale mutation), TRP-PC-07 — status-preserving content changes (Astra Finding A1/A2).
 import assert from "node:assert/strict";
 import { promises as fs } from "node:fs";
 import * as path from "node:path";
@@ -6,7 +7,7 @@ import { describe, it } from "node:test";
 import { init } from "../../src/bootstrap/index.ts";
 import { errorCode } from "../../src/core/errors.ts";
 import { sha256Hex } from "../../src/core/hash.ts";
-import { buildSuccessor, type WorkingCopyFacts } from "../../src/core/state/index.ts";
+import { buildSuccessor, listObjects, validateAuthoritativeState, type WorkingCopyFacts } from "../../src/core/state/index.ts";
 import { current, observe, openProject, publish, status, type Project } from "../../src/harness/index.ts";
 import { AUTH, createGitRepo, type GitRepo } from "../helpers/git-fixture.ts";
 import { withTempDir } from "../helpers/tmpdir.ts";
@@ -76,6 +77,47 @@ describe("repository-fact partition with Git-observed facts", () => {
       assert.equal((await current(project)).current.object.seq, 1);
     });
   });
+
+  for (const kind of ["tracked", "untracked"] as const) {
+    it(`#status-preserving-${kind}-stale: a ${kind} file whose content changes A→B without any git status change rejects the prepared publication (Astra Finding ${kind === "tracked" ? "A1" : "A2"})`, async () => {
+      await withTempDir(async (dir) => {
+        const { repo, project } = await setup(dir);
+        const rel = kind === "tracked" ? "src/app.txt" : "scratch/untracked.bin";
+        const porcelain = (): Promise<string> => repo.git(["status", "--porcelain=v2", "-z", "--untracked-files=all"]);
+        // 1. The file already carries dirty content A (tracked: modified; untracked: present and untracked).
+        await repo.write(rel, "content A\n");
+        const r0 = await step(project, "adopt-dirty-A", (await observe(project)).workingCopy);
+        // 2. The request is prepared against the observed facts.
+        const prepared = (await observe(project)).workingCopy;
+        assert.deepEqual(prepared, r0.workingCopy);
+        const statusA = await porcelain();
+        const before = await current(project);
+        const currentBytes = await fs.readFile(project.layout.currentFile);
+        const objectsBefore = (await listObjects(project.layout)).ids.slice().sort();
+        // 3. The same file changes to materially different content B.
+        await repo.write(rel, "content B: materially different bytes\n");
+        // 4. Git's status record is unchanged (same dirty category, same index/HEAD blobs).
+        assert.equal(await porcelain(), statusA, "the A→B edit is invisible to git status");
+        // 5. The corrected working-copy identity changes.
+        const live = (await observe(project)).workingCopy;
+        assert.notEqual(live.dirtyDigest, prepared.dirtyDigest);
+        assert.equal((await status(project)).drift, true);
+        // 6–7. The stale publication is refused with the stale-state error.
+        await assert.rejects(step(project, `stale-${kind}`, prepared), (e: unknown) => errorCode(e) === "STALE_WORKING_COPY");
+        // 8–9. Nothing advanced and no successor exists.
+        assert.deepEqual(await fs.readFile(project.layout.currentFile), currentBytes, "CURRENT is byte-identical");
+        const after = await current(project);
+        assert.equal(after.current.id, before.current.id);
+        assert.equal(after.current.object.seq, before.current.object.seq);
+        assert.deepEqual((await listObjects(project.layout)).ids.slice().sort(), objectsBefore, "no successor object was created");
+        assert.equal((await validateAuthoritativeState(project.layout)).ok, true);
+        // A request re-prepared against content B is accepted and records the new identity.
+        const r = await step(project, `re-observed-${kind}`, live);
+        assert.deepEqual(r.workingCopy, live);
+        assert.equal((await current(project)).current.object.seq, before.current.object.seq + 1);
+      });
+    });
+  }
 
   it("#user-commit-detected #branch-switch-detected #merge-in-progress-detected: HEAD, branch and operation changes are detected (RFP-03)", async () => {
     await withTempDir(async (dir) => {

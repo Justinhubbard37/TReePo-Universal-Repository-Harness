@@ -7,6 +7,7 @@ const PINNED_NODE = "24.19.0";
 const ACCEPTANCE_FILES = [
   "test/integration/init.test.ts",
   "test/integration/install.test.ts",
+  "test/integration/init-concurrency.test.ts",
   "test/integration/git-adapter.test.ts",
   "test/integration/cli.test.ts",
   "test/unit/state-schema.test.ts",

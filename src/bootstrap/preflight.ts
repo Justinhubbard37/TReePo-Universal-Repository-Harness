@@ -7,9 +7,11 @@
 // human-only facts).
 
 import { promises as fs } from "node:fs";
+import * as nodePath from "node:path";
 import { observeRepository, type RepositoryFacts } from "../adapters/repo/git/index.ts";
 import { layoutFor, type Layout } from "../core/state/layout.ts";
 import { validateAuthoritativeState, type ValidationReport } from "../core/state/validate.ts";
+import { lockFile } from "../core/tx/lock.ts";
 import type { Platform } from "../platform/index.ts";
 import { readOwner, type OwnerRead } from "./owner.ts";
 
@@ -83,10 +85,26 @@ async function exists(path: string): Promise<boolean> {
   }
 }
 
-async function containsAnyFile(dir: string): Promise<boolean> {
+/**
+ * TReePo's own writer lock (and its exclusive-create temp file). Initialization
+ * takes the lock before writing the owner marker, so the lock is never evidence
+ * of a foreign `.treepo`; it is runtime state and never authoritative.
+ */
+function isWriterLockMaterial(layout: Layout, path: string): boolean {
+  if (nodePath.dirname(path) !== layout.runtimeDir) return false;
+  const name = nodePath.basename(path);
+  const lockName = nodePath.basename(lockFile(layout));
+  return name === lockName || name.startsWith(`.${lockName}.tmp-`);
+}
+
+async function containsAnyFile(layout: Layout, dir: string): Promise<boolean> {
   for (const entry of await fs.readdir(dir, { withFileTypes: true })) {
-    if (!entry.isDirectory()) return true;
-    if (await containsAnyFile(`${dir}/${entry.name}`)) return true;
+    const path = nodePath.join(dir, entry.name);
+    if (!entry.isDirectory()) {
+      if (isWriterLockMaterial(layout, path)) continue;
+      return true;
+    }
+    if (await containsAnyFile(layout, path)) return true;
   }
   return false;
 }
@@ -96,8 +114,8 @@ export async function classifyInstall(layout: Layout): Promise<InstallState> {
   if (entries === null) return { status: "adoptable", owner: { status: "missing" }, reason: "no .treepo directory" };
   if (entries.length === 0) return { status: "adoptable", owner: { status: "missing" }, reason: ".treepo directory is empty" };
   const owner = await readOwner(layout);
-  if (owner.status === "missing" && !(await containsAnyFile(layout.treepoDir))) {
-    return { status: "adoptable", owner, reason: ".treepo contains only empty directories (no owner marker, no data)" };
+  if (owner.status === "missing" && !(await containsAnyFile(layout, layout.treepoDir))) {
+    return { status: "adoptable", owner, reason: ".treepo contains only empty directories or the writer lock (no owner marker, no data)" };
   }
   if (owner.status === "incompatible") return { status: "incompatible", owner, reason: owner.reason };
   if (owner.status !== "valid") {

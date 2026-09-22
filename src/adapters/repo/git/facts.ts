@@ -6,8 +6,16 @@
 // §1; Acceptance A.3, E.5, F.1. ED-18 partitions the observed porcelain
 // entries into the bound `workingCopy` set (TReePo-owned paths excluded) and
 // the reported `treepoSurface` set.
+//
+// A porcelain record alone does not identify working-copy content: an
+// already-modified tracked file or an existing untracked file can change
+// A→B while git prints the identical record. The bound dirty digest
+// therefore pairs every bound record with the digest of the bytes currently
+// at its path (Astra Finding A), so stale-publication detection and the
+// hydration fingerprint both see status-preserving content changes.
 
-import { promises as fs } from "node:fs";
+import { createHash } from "node:crypto";
+import { createReadStream, promises as fs } from "node:fs";
 import * as nodePath from "node:path";
 import { PlatformError } from "../../../core/errors.ts";
 import { digestOf } from "../../../core/hash.ts";
@@ -95,6 +103,56 @@ async function exists(p: string): Promise<boolean> {
   }
 }
 
+function isMissing(cause: unknown): boolean {
+  const code = (cause as { code?: unknown } | null)?.code;
+  return code === "ENOENT" || code === "ENOTDIR";
+}
+
+function unreadable(path: string, cause: unknown): PlatformError {
+  return new PlatformError({ code: "WORKING_COPY_UNREADABLE", message: `cannot read working-copy content at ${path}`, details: { path }, cause });
+}
+
+async function fileDigest(full: string): Promise<string | null> {
+  const hash = createHash("sha256");
+  try {
+    for await (const chunk of createReadStream(full)) hash.update(chunk as Buffer);
+  } catch (cause) {
+    if (isMissing(cause)) return null;
+    throw unreadable(full, cause);
+  }
+  return hash.digest("hex");
+}
+
+/**
+ * Identity of the working-copy object at a bound path: raw bytes for a file
+ * (no line-ending or text decoding), the link target for a symlink, and the
+ * object kind otherwise. Directories (submodules, nested repositories) keep
+ * their porcelain-level semantics. Unreadable content fails closed.
+ */
+async function contentIdentity(root: string, rel: string): Promise<string> {
+  const full = nodePath.join(root, ...rel.split("/"));
+  let stat;
+  try {
+    stat = await fs.lstat(full);
+  } catch (cause) {
+    if (isMissing(cause)) return "absent";
+    throw unreadable(full, cause);
+  }
+  if (stat.isSymbolicLink()) {
+    try {
+      return `symlink:${createHash("sha256").update(await fs.readlink(full, { encoding: "buffer" })).digest("hex")}`;
+    } catch (cause) {
+      if (isMissing(cause)) return "absent";
+      throw unreadable(full, cause);
+    }
+  }
+  if (stat.isFile()) {
+    const digest = await fileDigest(full);
+    return digest === null ? "absent" : `file:${digest}`;
+  }
+  return stat.isDirectory() ? "directory" : "other";
+}
+
 /** Observe every repository fact mechanically. Read-only. */
 export async function observeRepository(platform: Platform, cwd: string): Promise<RepositoryFacts> {
   const version = (await runGit(["--version"], cwd)).stdout.trim();
@@ -128,7 +186,9 @@ export async function observeRepository(platform: Platform, cwd: string): Promis
   const status = await runGit(["status", "--porcelain=v2", "-z", "--untracked-files=all"], root);
   const entries = parsePorcelainV2Z(status.stdout);
   const inTreepo = (e: PorcelainEntry): boolean => isTreepoPath(e.path) || (e.origPath !== null && isTreepoPath(e.origPath));
-  const bound = entries.filter((e) => !inTreepo(e)).map((e) => e.raw).sort();
+  const bound: { record: string; content: string }[] = [];
+  for (const e of entries.filter((x) => !inTreepo(x))) bound.push({ record: e.raw, content: await contentIdentity(root, e.path) });
+  bound.sort((a, b) => (a.record < b.record ? -1 : a.record > b.record ? 1 : 0));
   const surface = entries.filter(inTreepo).map((e) => e.raw).sort();
   const unmerged = entries.filter((e) => e.type === "u").map((e) => e.raw).sort();
 

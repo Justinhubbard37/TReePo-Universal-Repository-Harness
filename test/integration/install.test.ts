@@ -112,6 +112,23 @@ describe("safe installation / update / uninstall", () => {
     });
   });
 
+  it("#init-lock-before-owner: a writer lock without an owner marker is TReePo runtime material, not foreign data; a held lock blocks initialization without mutation (Astra Finding B)", async () => {
+    await withTempDir(async (dir) => {
+      const repo = await createGitRepo(dir);
+      const layout = layoutFor(platform.normalizePath(repo.root));
+      const { acquireLock } = await import("../../src/core/tx/index.ts");
+      const held = await acquireLock(platform, layout);
+      assert.equal((await preflight(platform, repo.root)).install.status, "adoptable");
+      await assert.rejects(init(platform, repo.root, { requester: "a", authorization: AUTH }), (e: unknown) => errorCode(e) === "LOCK_HELD");
+      assert.equal(await exists(layout.ownerFile), false, "nothing was written while another writer owned the repository");
+      await held.release();
+      await repo.write(".treepo/runtime/other-tool.db", "not TReePo's");
+      assert.equal((await preflight(platform, repo.root)).install.status, "foreign", "only the writer lock itself is exempt");
+      await fs.rm(path.join(layout.runtimeDir, "other-tool.db"));
+      assert.equal((await init(platform, repo.root, { requester: "a", authorization: AUTH })).status, "initialized");
+    });
+  });
+
   it("#foreign-namespace: a pre-existing non-TReePo .treepo directory blocks initialization (ED-06 collision policy)", async () => {
     await withTempDir(async (dir) => {
       const repo = await createGitRepo(dir);

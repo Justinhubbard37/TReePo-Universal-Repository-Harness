@@ -78,6 +78,48 @@ describe("git repository adapter", () => {
     });
   });
 
+  it("#status-preserving-content: dirty digest binds working-copy content, so tracked and untracked A→B edits that leave git status unchanged are detected (Astra Finding A)", async () => {
+    await withTempDir(async (dir) => {
+      const repo = await createGitRepo(dir);
+      const clean = (await observeRepository(platform, repo.root)).workingCopy;
+      const porcelain = (): Promise<string> => repo.git(["status", "--porcelain=v2", "-z", "--untracked-files=all"]);
+
+      // Tracked file already dirty with content A, then materially different dirty content B.
+      await repo.write("src/app.txt", "dirty content A\n");
+      const statusA = await porcelain();
+      const trackedA = (await observeRepository(platform, repo.root)).workingCopy;
+      await repo.write("src/app.txt", "dirty content B, materially different\n");
+      assert.equal(await porcelain(), statusA, "git status record is unchanged by the A→B edit");
+      const trackedB = (await observeRepository(platform, repo.root)).workingCopy;
+      assert.notEqual(trackedB.dirtyDigest, trackedA.dirtyDigest);
+      assert.deepEqual({ ...trackedB, dirtyDigest: "" }, { ...trackedA, dirtyDigest: "" }, "only the dirty digest moves");
+      assert.equal((await observeRepository(platform, repo.root)).workingCopy.dirtyDigest, trackedB.dirtyDigest, "deterministic for repeated observation");
+
+      // Existing untracked file with content A, then content B (binary, not UTF-8).
+      await fs.writeFile(path.join(repo.root, "blob.bin"), Buffer.from([0x00, 0xff, 0xfe, 0x80, 0x01]));
+      const statusU = await porcelain();
+      const untrackedA = (await observeRepository(platform, repo.root)).workingCopy;
+      await fs.writeFile(path.join(repo.root, "blob.bin"), Buffer.from([0x00, 0xff, 0xfe, 0x80, 0x02]));
+      assert.equal(await porcelain(), statusU, "git status record is unchanged by the untracked A→B edit");
+      const untrackedB = (await observeRepository(platform, repo.root)).workingCopy;
+      assert.notEqual(untrackedB.dirtyDigest, untrackedA.dirtyDigest, "a single differing byte in an untracked binary file is detected");
+
+      // Restoring the exact bytes restores the exact identity.
+      await fs.writeFile(path.join(repo.root, "blob.bin"), Buffer.from([0x00, 0xff, 0xfe, 0x80, 0x01]));
+      assert.equal((await observeRepository(platform, repo.root)).workingCopy.dirtyDigest, untrackedA.dirtyDigest);
+
+      // .treepo/** content remains excluded, and a clean tree keeps its identity.
+      await repo.write(".treepo/state/CURRENT", "one");
+      const withTreepo = (await observeRepository(platform, repo.root)).workingCopy;
+      await repo.write(".treepo/state/CURRENT", "two, different content");
+      assert.deepEqual((await observeRepository(platform, repo.root)).workingCopy, withTreepo, ".treepo content never enters the bound identity");
+      await fs.rm(path.join(repo.root, ".treepo"), { recursive: true });
+      await fs.rm(path.join(repo.root, "blob.bin"));
+      await repo.git(["checkout", "--", "src/app.txt"]);
+      assert.deepEqual((await observeRepository(platform, repo.root)).workingCopy, clean);
+    });
+  });
+
   it("excludes .treepo/** from the bound fingerprint and reports it in treepoSurface (ED-18)", async () => {
     await withTempDir(async (dir) => {
       const repo = await createGitRepo(dir);
