@@ -685,3 +685,55 @@ Phase 12 preserves prior evidence and correction history rather than rewriting i
 ### Verification status
 
 Final authoritative typecheck, regression, `git diff --check`, changed-file inventory, protected-surface comparison, historical-evidence re-check, ledger final counts, and audit-package hashes are intentionally captured only after the closure artifacts are complete. Those results belong to the Phase 12 raw evidence set and candidate report; this section does not pre-claim them.
+
+---
+
+## Post-Phase-12 Astra correction
+
+| Item | Value |
+|---|---|
+| Accepted starting checkpoint | `44955c2f094a69072754473e09485c713cce4384` (Phase Zero PASS on the Phase 12 traceability correction); parent `a3133167597e1286c28261c9c9b95bb7bf567c06` |
+| Blocker source | GPT-6 Astra review after Phase Zero acceptance of `44955c2`: Finding A and Finding B, both V1 BLOCKING |
+| Governing disposition | Phase Zero reproduced both findings independently and returned **CORRECTION REQUIRED**. One consolidated bounded correction loop was authorized, and architecture redesign was not |
+| Implementation checkpoint | `bd91f3831b5a64b38490a50f866a0725d2739ed6` (`fix: post-phase-12 astra correction, content-bound working copy and owned init`), parent `44955c2` |
+| Production files | `src/adapters/repo/git/facts.ts`, `src/bootstrap/init.ts`, `src/bootstrap/preflight.ts` |
+| Test files | `test/integration/git-adapter.test.ts`, `test/integration/repo-fact-partition.test.ts`, `test/integration/hydration.test.ts`, `test/integration/install.test.ts`, new `test/integration/init-concurrency.test.ts`; `test/acceptance/run.ts` (subset inclusion of the new file only) |
+| Protected surfaces changed | 0 |
+| Raw evidence | `evidence/phase-12/correction-astra-44955c2/` (ignored; delivered in the audit package) |
+| Cross-environment report | `docs/implementation/acceptance/post-phase12-astra-correction.md` |
+| Authority boundary | Candidate only. Phase Zero re-audit, any later Astra review, Director acceptance and release approval remain external gates |
+
+The history is preserved as it occurred. `44955c2` was accepted by Phase Zero. Astra then found two defects that the accepted evidence had not exercised. Phase Zero confirmed them and reopened the rows listed below. The Phase 12 closure text and evidence above are left unchanged as the record of what was claimed and accepted at `44955c2`.
+
+### Finding A — status-preserving working-copy content changes
+
+**Root cause.** `observeRepository` computed `workingCopy.dirtyDigest` only from the `git status --porcelain=v2` records outside `.treepo/`. For an already-modified tracked file, the record carries the HEAD/index blob ids and modes, not worktree content. For an untracked file, it carries only the path. A→B edits therefore printed an identical record and produced an identical `dirtyDigest`. That identity is the input to both `STALE_WORKING_COPY` (publication) and the hydration fingerprint (ROUTINE_DELTA eligibility), so both missed the change.
+
+**Correction (repository-fact layer only).** Each bound porcelain record is now paired with the identity of the object at its path: `file:<sha256 of raw bytes>` (streamed; no text decoding or line-ending conversion, so binary content is exact), `symlink:<sha256 of link target>`, `absent` (deleted/missing), or `directory`/`other` (submodules and nested repositories keep their existing porcelain-level semantics). Pairs are sorted by record, so the digest is deterministic. Unreadable content fails closed with `WORKING_COPY_UNREADABLE`. A clean tree still digests the empty list, so its identity is unchanged. `.treepo/**` stays excluded before any content is read. HEAD, branch, staging records, operation markers and the conflict digest are unchanged. No consumer changed: `src/core/tx/publish.ts` and `src/hydration/**` already compare the full `workingCopy`, so one corrected identity closes both paths.
+
+**Regression evidence.** `git-adapter.test.ts#status-preserving-content` covers tracked A→B, untracked binary A→B (a one-byte difference), restoration to the exact prior identity, `.treepo` content exclusion, and clean-tree identity. A1/A2 (`repo-fact-partition.test.ts#status-preserving-tracked-stale`, `#status-preserving-untracked-stale`): the file is dirty with content A, the request is prepared, the file changes to B, the porcelain output is asserted byte-identical, the live identity differs, and publication rejects with `STALE_WORKING_COPY`. `CURRENT` stays byte-identical, seq/current id are unchanged, and the object set is unchanged (no successor), with validation `ok`. A re-prepared request then succeeds. A3/A4 (`hydration.test.ts#hydration-status-preserving-tracked-invalidates`, `#hydration-status-preserving-untracked-invalidates`): full hydration with content A is eligible as a control. After the status-preserving change to B, the fingerprint differs, the old capability is `binding-mismatch`, and `routine` takes `full-assurance` with `skipped: []`. The observer records layers 1–5, 8 and the core stale-check, and a fresh session capability binds content B.
+
+### Finding B — overlapping initialization
+
+**Root cause.** `init` classified the installation (preflight) and then wrote `OWNER`, `.gitignore`, `.gitattributes`, the bootstrap authorization and the adapter record **before** acquiring the writer lock. Only genesis/`CURRENT` were written under the lock. A second initializer that had already classified the repository as adoptable could resume after a winner completed and overwrite `OWNER`, add a second bootstrap grant, and publish an unreachable second genesis over `CURRENT`, corrupting the winner (`UNREACHABLE_OBJECT`).
+
+**Correction (existing writer lock; no new locking architecture).** After request validation, and before any installation write, `init` acquires the existing writer lock. It then re-classifies the installation **under the lock** and passes the result through the same resolution as the pre-lock classification. `installed` returns `already-initialized` with the winner's install id and genesis. `incomplete`, `foreign` and `incompatible` fail closed. Only `adoptable` while holding the lock authorizes mutation. Every consequential installation write (`OWNER`, ignore/attributes files, authorization, adapter record, genesis object, `CURRENT`, agent entry) now happens under the lock. An initializer that overlaps a winner still holding the lock is refused with `LOCK_HELD` before any write. Because the lock file now exists before the owner marker, `classifyInstall` treats TReePo's own writer lock (and its exclusive-create temp name) under `.treepo/runtime/` as runtime material, not foreign data. Any other file still classifies as `foreign`. `src/core/tx/lock.ts` is unchanged.
+
+**Regression evidence.** `init-concurrency.test.ts` runs each initializer on a test-only `Platform` wrapper that parks at its first mutating platform operation until released. Production code is not altered by the wrapper.
+
+- `#init-stale-adoptable-cannot-overwrite`: B parks while the repository still classifies as adoptable, before any owner marker. A initializes and validates. B resumes and returns `already-initialized` with A's install id and genesis and `grantId: null`. Every non-runtime `.treepo` file is byte-identical to A's post-install snapshot. Validation is `ok`, the chain has length 1, `CURRENT` = A's genesis, the object set is only A's genesis, `OWNER` = A, there is one bootstrap grant (A's), the adapter registry is unchanged, and no lock is left behind.
+- `#init-overlap-refused-without-mutation`: B parks, then A parks mid-install holding the lock, at its genesis object write. B resumes, gets `LOCK_HELD`, and changes nothing. A completes validly, and a later sequential rerun is idempotent.
+- `install.test.ts#init-lock-before-owner`: a lock without an owner marker is adoptable, but a held lock blocks init without writes. A foreign runtime file is still `foreign`.
+
+The existing `#rerun`, `#failed-init`, `#failed-init-early`, `#foreign-namespace`, uninstall and publication-concurrency tests pass unchanged.
+
+### Verification
+
+- Pre-fix, pristine `44955c2` sources with the new tests: 8/8 fail (`01-prefix-reproduction-44955c2.log`).
+- Windows 11 Home Insider Preview build 26220, local NTFS, Node 24.19.0, npm 11.17.0, TypeScript 6.0.3, at `bd91f38`: typecheck PASS, targeted 8/8, primary acceptance subset 240/240 (42 suites), full regression **260/260** (48 suites), 0 fail/skipped/cancelled/todo, `git diff --check` exit 0, clean tree (`05-windows-verification-bd91f38.log`).
+- Ubuntu 26.04 under WSL2, native ext4 at `/home/heathen/TReePo-Fable-AstraCorrection`, Node 24.19.0, npm 11.17.0, TypeScript 6.0.3, at `bd91f38`: identical totals, `git diff --check` exit 0, clean tree (`06-wsl2-verification-bd91f38.log`).
+- Historical evidence (`03-historical-evidence-precommit.log`): Phase 1–11 173/173, Phase 12 run 8/8, Phase 12 traceability correction 16/16. All are present with 0 hash mismatches, and all 199 pre-existing evidence files are snapshotted in `00-pre-correction-evidence-sha256.txt`.
+
+### Reopened rows reconciled
+
+`TRP-ARCH-12`, `TRP-ARCH-14`, `TRP-BLD-001B`, `TRP-INV-06` (stale and concurrent facets), `TRP-INV-13`, `TRP-AC-I2`, `TRP-AC-I9`, `TRP-RFP-02`, `TRP-RFP-08` and `TRP-PC-07` (Finding A); `TRP-ARCH-05`, `TRP-ARCH-06`, `TRP-PC-11`, `TRP-AC-D4` and `TRP-AC-G2` (Finding B). Each row keeps its prior evidence text and now also cites the corrected implementation, the specific regression tests and this section. With the correction evidence above, each is again supported as `IMPLEMENTED`. The ledger remains 216 rows, 216 `IMPLEMENTED`, 0 non-final (audit: `08-ledger-audit-after-reconciliation.log`).

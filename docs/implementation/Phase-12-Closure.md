@@ -2,6 +2,8 @@
 
 **Status:** Phase 12 closure candidate preparation. This document does not constitute Phase Zero acceptance, Director acceptance, release acceptance, or authorization for post-v1 work.
 
+**Post-Phase-12 note (2026-09-22):** §§1–9 are preserved as the closure record that Phase Zero accepted at `44955c2`. GPT-6 Astra later reported two V1-blocking defects, which Phase Zero independently confirmed. §10 records the bounded correction and the reconciliation of the reopened rows.
+
 ## 1. Candidate basis
 
 Phase 12 starts from accepted Phase 11 checkpoint `62df7e401d6617398a34bd36474c1c379f9a45dc` on `fable/implementation`, direct parent `93e124f54b9f395745913b2678fe3e9eb5ec23ae`. Accepted ancestry includes `8aad4a0bc22dabe76b1a15cf509f6dd18fbd73ee`, `682a21eabd7f619e72087695821ab1a0907b1bb2`, and `14a9d0118b791f717789e6c49a68de99f7ba078c`.
@@ -89,3 +91,43 @@ No remaining Traceability Ledger row is intentionally left non-IMPLEMENTED after
 This closure is a **candidate**, not an acceptance decision. Phase 12 may establish that the repository, evidence, traceability, and claim boundaries are internally consistent and mechanically support a v1 candidate. It does not declare TReePo v1 accepted or released.
 
 After the Phase 12 candidate checkpoint and audit package are created, the next authority is independent Phase Zero audit. GPT-6 Astra review has not begun. Director acceptance has not been granted. No post-v1 work is authorized or begun.
+
+## 10. Post-Phase-12 Astra blocker correction
+
+### 10.1 History (preserved, not rewritten)
+
+1. Phase Zero accepted Phase 12 checkpoint `44955c2f094a69072754473e09485c713cce4384` (traceability correction of `a313316`).
+2. GPT-6 Astra then reported two defects, both V1 BLOCKING:
+   - **Finding A:** materially different working-copy content could produce identical TReePo working-copy facts when git's porcelain status was unchanged. This affected prepared-publication stale detection (`STALE_WORKING_COPY`), hydration fingerprints and ROUTINE_DELTA eligibility.
+   - **Finding B:** an initializer could classify a repository as adoptable before exclusive ownership, let another initializer complete, then resume and overwrite installation/authoritative surfaces, damaging the valid winner.
+3. Phase Zero independently reproduced both findings and returned **CORRECTION REQUIRED**. It authorized one consolidated bounded correction loop, with no architecture redesign, and reopened `TRP-ARCH-12`, `TRP-ARCH-14`, `TRP-BLD-001B`, `TRP-INV-06`, `TRP-INV-13`, `TRP-AC-I2`, `TRP-AC-I9`, `TRP-RFP-02`, `TRP-RFP-08` and `TRP-PC-07` (A), plus `TRP-ARCH-05`, `TRP-ARCH-06`, `TRP-PC-11`, `TRP-AC-D4` and `TRP-AC-G2` (B). The meaning of BLD-001B and every other requirement is unchanged; only the implementation claim was reopened.
+
+The Astra blocker record and the Phase Zero confirmation are external governance records. This repository does not hold, edit or restate them beyond the summary above.
+
+### 10.2 Correction
+
+Implementation checkpoint `bd91f3831b5a64b38490a50f866a0725d2739ed6`, a direct child of `44955c2`, changes only `src/adapters/repo/git/facts.ts`, `src/bootstrap/init.ts` and `src/bootstrap/preflight.ts`:
+
+- **A:** the bound working-copy identity (`workingCopy.dirtyDigest`) binds the identity of the bytes at each bound path (raw-byte SHA-256, symlink target, or object kind) to its porcelain record. The existing publication and hydration comparisons consume that one corrected identity unchanged.
+- **B:** initialization takes the existing writer lock before any installation write and re-classifies the installation under the lock. A stale initializer returns the completed install idempotently, or refuses with `LOCK_HELD` without mutation.
+
+Details, root causes and per-test evidence are in `Phase-Evidence.md` §Post-Phase-12 Astra correction.
+
+### 10.3 Evidence and reconciliation
+
+- The 8 new regressions fail on pristine `44955c2` and pass on `bd91f38`.
+- Windows 11/local NTFS and Ubuntu/WSL2 native ext4, both Node 24.19.0 at `bd91f38`: typecheck PASS; targeted 8/8; primary acceptance subset 240/240; full regression 260/260; 0 fail/skipped/cancelled/todo (`acceptance/post-phase12-astra-correction.md`).
+- These supersede, for this candidate, the §6 totals (232 primary / 252 full). Those totals remain the historically accurate Phase 10/11 results and are not rewritten.
+- All 15 reopened rows cite the corrected implementation and evidence and are again supported as `IMPLEMENTED`. The ledger is 216/216 `IMPLEMENTED`, 0 non-final.
+- The §4 claims "stale … and concurrent-writer cases fail closed under the tested contracts" and "installation/init/update-equivalent rerun/uninstall safety" now also cover status-preserving content changes and overlapping initialization. The §5 unsupported-claims boundary is unchanged.
+
+### 10.4 Authority boundary
+
+This correction is a **candidate**:
+
+- it has not passed Phase Zero re-audit;
+- GPT-6 Astra has not re-reviewed it;
+- Director acceptance has not occurred;
+- release approval has not occurred.
+
+No post-v1 work is authorized or begun.
