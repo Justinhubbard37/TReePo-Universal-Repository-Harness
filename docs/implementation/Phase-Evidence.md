@@ -652,3 +652,34 @@ The original Phase 11 transport demonstration above remains preserved as histori
 - `31-correction-evidence-inventory.log` SHA-256 inventories the complete correction evidence set, including both exact Transport bundles.
 
 The correction evidence now directly traces, in both directions, source governed state → exact export command/stdout → exact bundle bytes → raw SHA-256 → decoded manifest → fresh receiver with no `.treepo` → exact governed import with expected canonical digest → independent validation/orientation/current state. This addresses the Phase Zero evidence defect for `TRP-AC-L6` and `TRP-AC-M4` at the candidate-evidence level. **It does not declare those obligations accepted; disposition remains pending independent Phase Zero re-audit.** Phase 12 remains unstarted.
+
+---
+
+## Phase 12 — Final closure reconciliation
+
+| Item | Value |
+|---|---|
+| Starting checkpoint | `62df7e401d6617398a34bd36474c1c379f9a45dc` (accepted Phase 11 correction); parent `93e124f54b9f395745913b2678fe3e9eb5ec23ae` |
+| Branch | `fable/implementation` |
+| Phase type | Closure / evidence / traceability reconciliation only; no production implementation phase |
+| Historical evidence baseline | 173 accepted Phase 1–11 raw evidence files present; 0 missing, 0 extra, 0 hash mismatch before Phase 12 edits |
+| Ledger before closure | 189 IMPLEMENTED; 14 IN-PROGRESS; 2 IN-PROGRESS (observed); 11 PLANNED |
+| Canonical final evidence map | `docs/implementation/Traceability-Ledger.md` |
+| Claim-limit / closure statement | `docs/implementation/Phase-12-Closure.md` |
+| Authority boundary | Candidate only; Phase Zero audit, Astra review and Director acceptance remain external/later gates |
+
+### Closure reconciliation
+
+Phase 12 reconciles the remaining 27 non-final v1 Traceability Ledger rows against the implementation, Phase 1–11 execution evidence, both committed environment acceptance reports, and the accepted Phase Zero dispositions through `62df7e4`. No governing contract is modified and no production feature is added for cosmetic completeness.
+
+The final ledger itself is retained as the canonical requirement-to-evidence map rather than creating a duplicate mapping surface. The Phase 12 closure document records the bounded supported claims, explicit unsupported/unproven boundaries, BLD-001A through BLD-005 reconciliation, historical-evidence preservation rule, future/post-v1 boundary, and candidate-only authority status.
+
+One stale lower-authority representation is corrected during closure: `TRP-RFP-09` previously named an unimplemented future `doctor` command even though CLI names are engineering discretion and the governing obligation is the limitation/claim boundary. The existing ED-14 Transport export already reports whether Git HEAD contains the complete current authoritative state, with dedicated clone-sufficiency tests. Phase 12 points the row at the implemented mechanism and explicitly preserves the limitation instead of adding production code.
+
+### Historical proof chain
+
+Phase 12 preserves prior evidence and correction history rather than rewriting it into a perfect first-pass narrative. In particular, the Phase 8 semantic corrections, Phase 9 writer-lock correction, original Phase 11 candidate, and Phase 11 evidence-only Transport correction remain part of the auditable chain.
+
+### Verification status
+
+Final authoritative typecheck, regression, `git diff --check`, changed-file inventory, protected-surface comparison, historical-evidence re-check, ledger final counts, and audit-package hashes are intentionally captured only after the closure artifacts are complete. Those results belong to the Phase 12 raw evidence set and candidate report; this section does not pre-claim them.
