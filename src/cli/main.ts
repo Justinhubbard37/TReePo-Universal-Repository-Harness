@@ -209,13 +209,17 @@ export async function run(argv: readonly string[], io: CliIo): Promise<number> {
         if (sub === "install" && id !== undefined) {
           const state = await current(project);
           const facts = await observe(project);
-          json(await installAdapter(project, { adapterId: id, requester: required(flags, "requester"), expectedPredecessorId: state.current.id, expectedWorkingCopy: facts.workingCopy }));
+          const result = await installAdapter(project, { adapterId: id, requester: required(flags, "requester"), expectedPredecessorId: state.current.id, expectedWorkingCopy: facts.workingCopy });
+          await refreshAgentEntry(project);
+          json(result);
           return 0;
         }
         if (sub === "activate" && id !== undefined) {
           const state = await current(project);
           const facts = await observe(project);
-          json(await activateAdapter(project, { adapterId: id, capabilities: required(flags, "capability").split(","), requester: required(flags, "requester"), expectedPredecessorId: state.current.id, expectedWorkingCopy: facts.workingCopy }));
+          const outcome = await activateAdapter(project, { adapterId: id, capabilities: required(flags, "capability").split(","), requester: required(flags, "requester"), expectedPredecessorId: state.current.id, expectedWorkingCopy: facts.workingCopy });
+          await refreshAgentEntry(project);
+          json(outcome);
           return 0;
         }
         io.err(USAGE);
@@ -303,21 +307,23 @@ export async function run(argv: readonly string[], io: CliIo): Promise<number> {
         const facts = await observe(project);
         if (sub === "grant") {
           const expires = text(flags, "expires-after");
-          json(
-            await grantAuthorization(project, {
-              scope: { adapterId: required(flags, "adapter"), capabilities: required(flags, "capability").split(",") },
-              grantor: required(flags, "grantor"),
-              statement: required(flags, "statement"),
-              requester: required(flags, "requester"),
-              expectedPredecessorId: state.current.id,
-              expectedWorkingCopy: facts.workingCopy,
-              ...(expires === undefined ? {} : { expiresAfterSeqs: Number(expires) }),
-            }),
-          );
+          const outcome = await grantAuthorization(project, {
+            scope: { adapterId: required(flags, "adapter"), capabilities: required(flags, "capability").split(",") },
+            grantor: required(flags, "grantor"),
+            statement: required(flags, "statement"),
+            requester: required(flags, "requester"),
+            expectedPredecessorId: state.current.id,
+            expectedWorkingCopy: facts.workingCopy,
+            ...(expires === undefined ? {} : { expiresAfterSeqs: Number(expires) }),
+          });
+          await refreshAgentEntry(project);
+          json(outcome);
           return 0;
         }
         if (sub === "revoke") {
-          json(await revokeAuthorization(project, { grantId: required(flags, "grant"), grantor: required(flags, "grantor"), statement: required(flags, "statement"), requester: required(flags, "requester"), expectedPredecessorId: state.current.id, expectedWorkingCopy: facts.workingCopy }));
+          const outcome = await revokeAuthorization(project, { grantId: required(flags, "grant"), grantor: required(flags, "grantor"), statement: required(flags, "statement"), requester: required(flags, "requester"), expectedPredecessorId: state.current.id, expectedWorkingCopy: facts.workingCopy });
+          await refreshAgentEntry(project);
+          json(outcome);
           return 0;
         }
         io.err(USAGE);

@@ -18,12 +18,12 @@ import { ContinuityError } from "../core/errors.ts";
 import { digestOf } from "../core/hash.ts";
 import { evaluateAuthorization, loadAnchoredAuthz, requireAuthorization } from "../core/authz/index.ts";
 import type { Layout } from "../core/state/layout.ts";
-import type { StateObject, WorkingCopyFacts } from "../core/state/schema.ts";
+import type { NextAction, StateObject, WorkingCopyFacts } from "../core/state/schema.ts";
 import { buildSuccessor } from "../core/state/successor.ts";
 import { requireValidState, type ValidatedState } from "../core/state/validate.ts";
 import { publishTransition, type PublishPhase, type PublishResult } from "../core/tx/publish.ts";
 import type { Platform } from "../platform/index.ts";
-import { ACTIVATION_NAMESPACE, ADAPTER_API, activationOf, CORE_API, type AdapterImplementation, type Consequence } from "./api.ts";
+import { ACTIVATION_NAMESPACE, ADAPTER_API, activationOf, BOOTSTRAP_NEXT_ACTION, CORE_API, GENESIS_POSITION, isWorkflowAdapter, WORKFLOW_ACTIVATED_ACTION_ID, type AdapterImplementation, type Consequence } from "./api.ts";
 import { observeRepository, type RepositoryFacts } from "./repo/git/index.ts";
 import { checkApplicability, encodeInstalledRecord, installedRecordPath, isCompatible, readInstalledRecords, type Registry } from "./registry.ts";
 
@@ -87,6 +87,31 @@ export async function resolveInstalledAdapter(env: Env, adapterId: string, note:
   return impl;
 }
 
+function sameNextAction(a: NextAction, b: { readonly id: string; readonly description: string; readonly prerequisites: readonly string[] }): boolean {
+  return a.id === b.id && a.description === b.description && a.prerequisites.length === b.prerequisites.length && a.prerequisites.every((p, i) => p === b.prerequisites[i]);
+}
+
+/**
+ * DAT-001. Genesis records BOOTSTRAP_NEXT_ACTION ("select and activate a workflow adapter").
+ * Activating a workflow adapter satisfies that instruction, so while no governed work exists
+ * (position still exactly genesis: no workflow transition has ever run) the successor records what
+ * is now true instead. It also recomputes its own earlier WORKFLOW_ACTIVATED_ACTION_ID action when
+ * further capabilities are activated before work begins. Every other next action carries forward
+ * unchanged. Nothing here grants authority or supplies a work objective.
+ */
+function activationNextAction(impl: AdapterImplementation, pred: StateObject, activeCapabilities: readonly string[]): NextAction {
+  const carried = pred.core.nextAction;
+  if (impl.manifest.category !== "workflow") return carried;
+  if (pred.core.position.label !== GENESIS_POSITION.label || pred.core.position.detail !== GENESIS_POSITION.detail) return carried;
+  if (!sameNextAction(carried, BOOTSTRAP_NEXT_ACTION) && carried.id !== WORKFLOW_ACTIVATED_ACTION_ID) return carried;
+  const id = impl.manifest.id;
+  const supplied = isWorkflowAdapter(impl) ? impl.activatedNextAction?.(activeCapabilities) : undefined;
+  const description =
+    supplied?.description ??
+    `Workflow adapter ${id} is active for: ${activeCapabilities.join(", ")}. No governed work has been recorded yet; obtain the work objective from the human before exercising any consequential capability.`;
+  return { id: WORKFLOW_ACTIVATED_ACTION_ID, description, prerequisites: [...new Set(supplied?.prerequisites ?? [])].sort() };
+}
+
 export async function activateAdapter(env: Env, request: ActivationRequest): Promise<ActivationOutcome> {
   const note = request.observer ?? ((): void => undefined);
   note("1:core-integrity");
@@ -132,7 +157,7 @@ export async function activateAdapter(env: Env, request: ActivationRequest): Pro
         transition: { name: "adapter.activate", requestDigest: ctx.requestDigest, requester: request.requester, authzRefs: [...new Set(authzRefs)].sort(), supersedes: [] },
         repoFacts: { workingCopy: ctx.workingCopy },
         surfaceDigests: ctx.surfaceDigests,
-        nextAction: pred.core.nextAction,
+        nextAction: activationNextAction(impl, pred, capabilities),
         position: pred.core.position,
         adapter: { [ACTIVATION_NAMESPACE]: activation as unknown as StateObject["adapter"][string] },
       });

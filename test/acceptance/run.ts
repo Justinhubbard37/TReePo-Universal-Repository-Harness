@@ -10,6 +10,7 @@ const ACCEPTANCE_FILES = [
   "test/integration/init-concurrency.test.ts",
   "test/integration/git-adapter.test.ts",
   "test/integration/cli.test.ts",
+  "test/integration/dat-001-bootstrap-next-action.test.ts",
   "test/unit/state-schema.test.ts",
   "test/unit/successor.test.ts",
   "test/integration/lineage.test.ts",

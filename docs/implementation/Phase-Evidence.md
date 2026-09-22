@@ -737,3 +737,76 @@ The existing `#rerun`, `#failed-init`, `#failed-init-early`, `#foreign-namespace
 ### Reopened rows reconciled
 
 `TRP-ARCH-12`, `TRP-ARCH-14`, `TRP-BLD-001B`, `TRP-INV-06` (stale and concurrent facets), `TRP-INV-13`, `TRP-AC-I2`, `TRP-AC-I9`, `TRP-RFP-02`, `TRP-RFP-08` and `TRP-PC-07` (Finding A); `TRP-ARCH-05`, `TRP-ARCH-06`, `TRP-PC-11`, `TRP-AC-D4` and `TRP-AC-G2` (Finding B). Each row keeps its prior evidence text and now also cites the corrected implementation, the specific regression tests and this section. With the correction evidence above, each is again supported as `IMPLEMENTED`. The ledger remains 216 rows, 216 `IMPLEMENTED`, 0 non-final (audit: `08-ledger-audit-after-reconciliation.log`).
+
+## Director Acceptance Trial DAT-001 correction
+
+| Item | Value |
+|---|---|
+| Starting candidate | `fb090ac7acfbef457f71fb5f5dd10009c09df732` (`docs: reconcile final evidence map and working-copy identity description`) |
+| Defect source | Director Acceptance Trial, found after the Phase 12 and post-Phase-12 Astra corrections above. It is a later defect, not a reopening of them |
+| Governing disposition | Phase Zero independently reproduced and classified **DAT-001: CONFIRMED, V1 BLOCKING**, and one bounded correction was authorized. Onboarding, Router, workflow, authorization, transport and semantic-memory redesign were not |
+| Correction checkpoint | The single commit that records this section (`fix: DAT-001 supersede satisfied bootstrap next action on workflow activation`), parent `fb090ac` |
+| Production files | `src/adapters/activation.ts`, `src/adapters/api.ts`, `src/adapters/workflow/continuity/index.ts`, `src/bootstrap/init.ts`, `src/cli/main.ts` |
+| Test files | New `test/integration/dat-001-bootstrap-next-action.test.ts`; `test/acceptance/run.ts` (subset inclusion of the new file only) |
+| Protected surfaces changed | 0 |
+| Raw evidence | `evidence/dat-001/` (ignored; delivered in the audit package) |
+| Authority boundary | Candidate only. Phase Zero re-audit, the resumed Director Acceptance Trial, Director acceptance and release approval remain external gates |
+
+The earlier sections, including the Phase 12 closure and the Astra correction, are left unchanged. They record what was claimed at the time, and none of their evidence exercised the path described here.
+
+### Defect
+
+`init` records the genesis next action `intake-complete`: "Intake complete. Select and activate a workflow adapter through the Router before governed work begins." The trial then ran init, Router recommendation, `adapter install treepo.workflow.continuity`, an explicit `authorize grant`, and `adapter activate` for `orient, begin, progress, checkpoint, pause, handoff, resume`. At that point validation was `ok`, drift was `false`, the adapter was installed, authorized and active, the state was seq 3 and the last transition was `adapter.activate`. `core.nextAction` was still `intake-complete`. `treepo orient` and `.treepo/AGENT-ENTRY.md` therefore told a fresh agent both to select and activate a workflow adapter and to "Continue only from the recorded exact next action".
+
+### Root cause
+
+`installAdapter`, `grantAuthorization`/`revokeAuthorization` and `activateAdapter` all build their successor with `nextAction: predecessor.core.nextAction`. Carrying the action forward is correct for install and authorization, because the bootstrap instruction is still true then. For workflow activation it is not: activation is the event that satisfies the instruction, and nothing superseded it before a fresh agent had to act. A later `begin` would replace it, but reaching `begin` meant disregarding the recorded exact next action. The defect is in authoritative state, not only in presentation. Separately, the CLI regenerated the derived agent entry only after workflow actions, so after install, grant, revoke or activate the entry still showed the genesis state.
+
+### Correction
+
+- **`activationNextAction` in `src/adapters/activation.ts` (framework decides *when*).** The activation successor replaces the carried next action only when all of the following hold:
+  - the adapter being activated is workflow-category;
+  - the predecessor position is exactly genesis (`{label: "genesis", detail: ""}`), so no workflow transition has ever run;
+  - the carried action is either exactly the genesis bootstrap action (id, description and prerequisites), or the framework's own earlier `workflow-activated` action, which is recomputed when more capabilities are activated before work begins.
+
+  In every other case, the next action carries forward unchanged. That covers repository-adapter activation, any activation after `begin`, and any other recorded next action.
+- **Replacement next action.** It has id `workflow-activated`. Its description comes from the adapter's new optional, pure `WorkflowAdapter.activatedNextAction(activeCapabilities)` (adapter decides *what*), with a generic framework fallback for workflow adapters that do not supply one. It never contains a work objective, and it changes no position, completed item, authorization or activation data.
+- **Continuity adapter text.**
+  - When `begin` is active (it is consequential, so it could only be activated under an eligible grant), the action says to obtain the work objective and exact next action from the human and run `treepo begin --work … --next …`.
+  - When `begin` is not active, it says that governed work cannot begin yet, and that a human must grant and then activate `begin`.
+- **Shared constants in `src/adapters/api.ts`.** The genesis bootstrap action and position are now shared constants (`BOOTSTRAP_NEXT_ACTION`, `GENESIS_POSITION`) used by `init`. The genesis object content is unchanged.
+- **`src/cli/main.ts`.** `adapter install`, `adapter activate`, `authorize grant` and `authorize revoke` now regenerate `.treepo/AGENT-ENTRY.md` after a successful transition, as the workflow commands already did. The entry is derived and non-authoritative, and is not transported.
+
+Unchanged: install/authorization carry-forward, Router behavior, activation layers 1–8 and authority checks, workflow semantics (`begin`, `progress`, `checkpoint`, `pause`, `resume`, `handoff`), prior state objects and lineage, transport, semantic memory, and the Astra corrections.
+
+### Regression evidence
+
+`test/integration/dat-001-bootstrap-next-action.test.ts` drives the shipped CLI (`bin/treepo.ts`) in child processes. At each step it checks `validate`, `status` drift, `orient`, and agreement between `.treepo/AGENT-ENTRY.md` and `orient --text`. The comparison excludes the one live "N TReePo state file(s) are not yet committed" line; see the limitation below.
+
+| Test | Covers |
+|---|---|
+| D (authoritative only) | The exact trial lifecycle: at seq 3 after `adapter.activate`, `core.nextAction` is no longer `intake-complete` |
+| A–D, G | A: after init the bootstrap action is present. Router recommendation changes nothing. B: after install, and C: after authorization, the bootstrap action is unchanged and still true (nothing active). D: after activating all seven capabilities it is replaced by `workflow-activated`, with position still genesis, nothing completed and no workflow state, and the agent entry agrees. E.1: `begin` is active and authorized. G: `begin --work … --next …` records `na-4` with the supplied text, and position becomes `active` |
+| E.2 | Only `orient` is activated (automatic, no grant). The action states that `begin` is not active and how a human must grant and activate it. `authorizedNow` is empty. Activating or running `begin` without a grant is refused with no state change. A later grant alone carries the action forward. Activating `begin` recomputes it to the ready form |
+| Generic fallback (API) | A workflow adapter without `activatedNextAction` gets the generic action. The activation is automatic, with no authz refs, genesis position and no completed items |
+| F | Repository-adapter activation at genesis leaves the bootstrap action unchanged. After `begin` records an unrelated action, a further grant, activation of more capabilities, repository-adapter activation, a revoke, and a checkpoint without `--next` all leave it byte-identical |
+
+### Verification
+
+- **Baseline, pristine `fb090ac` before any change (Windows).** Typecheck PASS, full regression 260/260 (`00-baseline-check-fb090ac.log`).
+- **Negative proof.** On pristine `fb090ac` sources with only the new test file added, 0/5 pass (5 fail). The authoritative-only test fails with `core.nextAction is still the obsolete bootstrap instruction`.
+  - Windows NTFS: `01b-negative-proof-fb090ac-final-tests-windows.log`. This run used a temporary detached worktree and the final test file. The earlier 4-test run is kept as `01-negative-proof-fb090ac.log`.
+  - Ubuntu/WSL2 ext4: `06-wsl2-verification.log` §NEGATIVE PROOF.
+- **Windows 11 Home build 26220, local NTFS, Node 24.19.0 (corrected tree).**
+  - DAT-001 5/5 (`02-dat001-regression-windows.log`).
+  - Related init/install/activation/authz/continuity/CLI/hydration/fresh-agent/transport-fresh-agent/static suites 56/56 (`03-related-tests-windows.log`).
+  - `npm run check`: typecheck PASS, **265/265** (49 suites), 0 fail/skipped/cancelled/todo (`04-full-check-windows.log`).
+  - Real CLI lifecycle in a fresh Git repository: every check OK at A/route/B/C/D/G. Validation ok, drift false, the agent entry agrees with orientation, and the entry's next-action line equals `core.nextAction` (`05-cli-lifecycle-windows.log`, tool `tools/cli-lifecycle.mjs`).
+- **Ubuntu 26.04 under WSL2, native ext4 at `/home/heathen/TReePo-Fable-DAT001` (scratch repositories also on ext4), Node 24.19.0, npm 11.17.0, TypeScript 6.0.3 (candidate cloned from a bundle and checked to be exactly `fb090ac`, then the correction patch applied).**
+  - DAT-001 5/5, related suites 56/56, `npm run check` **265/265**.
+  - Real CLI lifecycle PASS (`06-wsl2-verification.log`, tool `tools/wsl-verify.sh`). `/mnt/c` held only the input bundle, patch and tool.
+- **Historical evidence.** Every pre-existing evidence file was hashed before any commit (`00-pre-correction-evidence-sha256.txt`, 225 files) and rechecked unchanged at commit time.
+
+### Limitation (stated, not claimed away)
+
+The derived agent entry contains one live line: the count of uncommitted `.treepo` files. The entry is written before it exists as a file, so that count can differ by one from a later `treepo orient --text`. This behavior predates the correction, is non-authoritative, and was not changed here. The DAT-001 agreement checks exclude only that line. `npm run accept` was not rerun, because it regenerates the committed Phase 10/11 acceptance reports, and this correction does not rewrite them.

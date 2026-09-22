@@ -89,7 +89,23 @@ export type WorkflowPlanResult = { readonly ok: true; readonly plan: WorkflowPla
 export interface WorkflowAdapter extends AdapterImplementation {
   /** Pure: derive the intended transition from the current state and the caller's input, or reject it for workflow policy. */
   planTransition(action: string, context: AdapterContext, input: CanonicalValue): WorkflowPlanResult;
+  /**
+   * Pure, optional (DAT-001): the next action to record when this adapter is activated before any
+   * governed work exists, given the capabilities now active for it. It may state what is required
+   * next; it may not invent a work objective. The framework decides when this applies.
+   */
+  activatedNextAction?(activeCapabilities: readonly string[]): { readonly description: string; readonly prerequisites: readonly string[] };
 }
+
+/** Genesis position and next action recorded by init: no workflow adapter is active yet. */
+export const GENESIS_POSITION = { label: "genesis", detail: "" } as const;
+export const BOOTSTRAP_NEXT_ACTION = {
+  id: "intake-complete",
+  description: "Intake complete. Select and activate a workflow adapter through the Router before governed work begins.",
+  prerequisites: [] as readonly string[],
+} as const;
+/** Id of the next action recorded when a workflow adapter is activated before any governed work (DAT-001). */
+export const WORKFLOW_ACTIVATED_ACTION_ID = "workflow-activated";
 
 export function isWorkflowAdapter(impl: AdapterImplementation): impl is WorkflowAdapter {
   return impl.manifest.category === "workflow" && typeof (impl as Partial<WorkflowAdapter>).planTransition === "function";

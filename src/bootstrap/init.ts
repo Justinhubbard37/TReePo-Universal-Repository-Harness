@@ -21,7 +21,7 @@ import { writeCurrent, writeObject } from "../core/state/store.ts";
 import { computeSurfaceDigests } from "../core/state/surface.ts";
 import { requireValidState } from "../core/state/validate.ts";
 import { acquireLock } from "../core/tx/lock.ts";
-import { ACTIVATION_NAMESPACE, ADAPTER_API, CORE_API } from "../adapters/api.ts";
+import { ACTIVATION_NAMESPACE, ADAPTER_API, BOOTSTRAP_NEXT_ACTION, CORE_API, GENESIS_POSITION } from "../adapters/api.ts";
 import { createRegistry, encodeInstalledRecord } from "../adapters/registry.ts";
 import type { CanonicalValue } from "../core/canon.ts";
 import { orient, writeAgentEntry } from "../orient/index.ts";
@@ -135,12 +135,8 @@ export async function init(platform: Platform, cwd: string, request: InitRequest
       requestDigest: digestOf({ kind: "init", requester, authorization: { grantor, statement }, projectLabel: request.projectLabel ?? null }),
       repoFacts: { workingCopy: facts.workingCopy },
       surfaceDigests,
-      nextAction: {
-        id: "intake-complete",
-        description: "Intake complete. Select and activate a workflow adapter through the Router before governed work begins.",
-        prerequisites: [],
-      },
-      position: { label: "genesis", detail: "" },
+      nextAction: { ...BOOTSTRAP_NEXT_ACTION, prerequisites: [...BOOTSTRAP_NEXT_ACTION.prerequisites] },
+      position: { ...GENESIS_POSITION },
       accepted,
       authzRefs: [grant.grantId],
       adapter: { [ACTIVATION_NAMESPACE]: activation },
