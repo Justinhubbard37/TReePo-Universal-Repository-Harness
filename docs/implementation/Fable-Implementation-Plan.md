@@ -181,7 +181,18 @@ Durable JSON records under `.treepo/state/authz/` contain: grant id, scope (adap
 | `workingCopy` (**bound**) | `worktreeId` (git common dir + worktree path identity), `head`, `branch`, `dirtyDigest`, `conflictDigest` | Bound into staleness preconditions and the hydration fingerprint |
 | `treepoSurface` (**reported, and digest-bound separately**) | list of `.treepo/**` porcelain entries (uncommitted authoritative state), `ownerDigest`, `adapterRegistryDigest`, complete active authorization-set digest | Shown by `status`/`orient`; these digests are recorded in each state object as `surfaceDigests`; the porcelain list is never a staleness input |
 
-`dirtyDigest` is `sha256` over the sorted entries of `git status --porcelain=v2 -z --untracked-files=all` after removing every entry whose path, or rename source path, equals `.treepo` or starts with `.treepo/`. `conflictDigest` is computed the same way over unmerged entries. No other path is excluded. `.treepo/runtime/**` is Git-ignored through the TReePo-owned `.treepo/.gitignore`, so it never appears in porcelain output and no session secret can reach a fingerprint.
+`dirtyDigest` is `sha256` over the canonical encoding of the entries of `git status --porcelain=v2 -z --untracked-files=all`, after removing every entry whose path, or rename source path, equals `.treepo` or starts with `.treepo/`. Each remaining entry is bound to the deterministic on-disk identity of its path. The entries are sorted by porcelain record.
+
+Path identities:
+
+- a regular file is the SHA-256 of its raw bytes, streamed with no text decoding or line-ending conversion;
+- a symlink is the SHA-256 of its link target;
+- a missing path is `absent`;
+- a directory, such as a submodule or nested repository, is only the kind `directory`, and its contents are not inspected;
+- any other object is `other`;
+- unreadable content fails closed with `WORKING_COPY_UNREADABLE`.
+
+As a result, a status-preserving content change is observable: an already-modified tracked file or an existing untracked file changing from content A to content B changes `dirtyDigest` even though git prints an identical record. A clean working copy digests the empty list. Ignored files never appear in this porcelain output and remain outside the bound identity (post-Phase-12 Astra correction, `src/adapters/repo/git/facts.ts`). `conflictDigest` is a digest over the in-progress operation markers and the sorted unmerged porcelain records, with no content identity. No other path is excluded. `.treepo/runtime/**` is Git-ignored through the TReePo-owned `.treepo/.gitignore`, so it never appears in porcelain output and no session secret can reach a fingerprint.
 
 **Why publication cannot self-invalidate.** A publication mutates only paths under `.treepo/`. Those entries are filtered before hashing, so the `workingCopy` partition observed before and after publication is byte-identical unless something outside `.treepo/` changed. The identity is by construction, not by timing.
 
