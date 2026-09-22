@@ -22,7 +22,7 @@ Before Phase 12, the ledger contained 189 IMPLEMENTED, 14 IN-PROGRESS, 2 IN-PROG
 
 The row changes are: `TRP-INV-12`, `TRP-DEF-01`, `TRP-DEF-03`, `TRP-DEF-09`, `TRP-PC-03`, `TRP-PC-07`, `TRP-PC-08`, `TRP-PC-15`, `TRP-PC-17`, `TRP-ARCH-01`, `TRP-ARCH-02`, `TRP-ARCH-04`, `TRP-ARCH-09`, `TRP-ARCH-15`, `TRP-ARCH-16`, `TRP-ADP-08`, `TRP-AC-D6`, `TRP-AC-F2`, `TRP-AC-N1`, `TRP-AG-01`, `TRP-AG-02`, `TRP-AG-03`, `TRP-EP-01`, `TRP-EP-02`, `TRP-EP-03`, `TRP-RFP-05`, and `TRP-RFP-09`.
 
-`TRP-RFP-09` contained a stale implementation-plan reference to a future `doctor` command. The governing requirement is the claim boundary, not that CLI name. The implemented ED-14 Transport mechanism already reports whether Git HEAD carries the complete current authoritative state through `clone.carriesCurrentState` plus missing/differing/extra-at-HEAD details, with dedicated clone-sufficiency tests. Phase 12 therefore reconciles the lower-authority ledger representation to the implemented mechanism rather than adding a new product command.
+The independent Phase Zero audit of candidate `a3133167597e1286c28261c9c9b95bb7bf567c06` accepted the substantive Phase 12 closure but found that the canonical ledger still contained stale literal implementation/test paths and two remaining false `doctor` proof mappings in `TRP-PC-11` and `TRP-AC-G2`. The bounded correction mechanically audits the full ledger and replaces only stale mappings with existing implementation/test surfaces. `TRP-RFP-09` remains mapped to the implemented ED-14 Transport clone-sufficiency mechanism. No `doctor` command is implemented or required, and no production code, tests, governing requirements, protected surfaces, or Phase 1–11 evidence are changed by this correction.
 
 ## 3. BLD reconciliation
 
