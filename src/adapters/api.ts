@@ -90,7 +90,7 @@ export interface WorkflowAdapter extends AdapterImplementation {
   /** Pure: derive the intended transition from the current state and the caller's input, or reject it for workflow policy. */
   planTransition(action: string, context: AdapterContext, input: CanonicalValue): WorkflowPlanResult;
   /**
-   * Pure, optional (DAT-001): the next action to record while this adapter is active before any
+   * Pure, optional (DAT-001): the next action to record while this adapter is installed or active before any
    * governed work exists, given the capabilities active for it and the consequential capabilities an
    * eligible anchored authorization covers at that state. It may state what is still required; it
    * may not invent a work objective. The framework decides when this applies and supplies both facts.

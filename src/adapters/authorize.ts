@@ -19,7 +19,7 @@ import type { Platform } from "../platform/index.ts";
 import { requireSamePredecessor } from "./activation.ts";
 import { activationOf } from "./api.ts";
 import { preWorkNextAction } from "./readiness.ts";
-import type { Registry } from "./registry.ts";
+import { readInstalledRecords, type Registry } from "./registry.ts";
 import { observeRepository } from "./repo/git/index.ts";
 
 interface Env {
@@ -61,6 +61,7 @@ export async function grantAuthorization(env: Env, request: GrantRequest): Promi
     expiresAtSeq: request.expiresAfterSeqs === undefined ? null : issuedAtSeq + request.expiresAfterSeqs,
   });
   const anchored = await loadAnchoredAuthz(env.layout, state);
+  const installed = (await readInstalledRecords(env.layout)).map((r) => r.id);
   const requestDigest = digestOf({ kind: "authz.grant", grantId: record.grantId, requester: request.requester, predecessorId: request.expectedPredecessorId });
   const result = await publishTransition(env.platform, env.layout, {
     expectedPredecessorId: request.expectedPredecessorId,
@@ -76,7 +77,7 @@ export async function grantAuthorization(env: Env, request: GrantRequest): Promi
         transition: { name: "authz.grant", requestDigest: ctx.requestDigest, requester: request.requester, authzRefs: [record.grantId], supersedes: [] },
         repoFacts: { workingCopy: ctx.workingCopy },
         surfaceDigests: ctx.surfaceDigests,
-        nextAction: preWorkNextAction({ registry: env.registry, predecessor: pred, activation: activationOf(pred), authz: [...anchored, record], successorSeq: pred.seq + 1 }),
+        nextAction: preWorkNextAction({ registry: env.registry, predecessor: pred, activation: activationOf(pred), installed, authz: [...anchored, record], successorSeq: pred.seq + 1 }),
         position: pred.core.position,
         addAccepted: [{ id: `authz:${record.grantId}`, digest: record.digest }],
       });
@@ -97,6 +98,7 @@ export interface RevokeRequest {
 export async function revokeAuthorization(env: Env, request: RevokeRequest): Promise<GrantOutcome> {
   const state = await requireValidState(env.layout);
   const anchored = await loadAnchoredAuthz(env.layout, state);
+  const installed = (await readInstalledRecords(env.layout)).map((r) => r.id);
   const target = anchored.find((r) => r.grantId === request.grantId);
   if (target === undefined) throw new ContinuityError({ code: "AUTHZ_UNKNOWN_GRANT", message: `no anchored grant ${request.grantId}`, details: { grantId: request.grantId } });
   const record = buildAuthzRecord({
@@ -121,7 +123,7 @@ export async function revokeAuthorization(env: Env, request: RevokeRequest): Pro
         transition: { name: "authz.revoke", requestDigest: ctx.requestDigest, requester: request.requester, authzRefs: [record.grantId], supersedes: [`authz:${target.grantId}`].filter((id) => pred.core.accepted.some((i) => i.id === id)) },
         repoFacts: { workingCopy: ctx.workingCopy },
         surfaceDigests: ctx.surfaceDigests,
-        nextAction: preWorkNextAction({ registry: env.registry, predecessor: pred, activation: activationOf(pred), authz: [...anchored, record], successorSeq: pred.seq + 1 }),
+        nextAction: preWorkNextAction({ registry: env.registry, predecessor: pred, activation: activationOf(pred), installed, authz: [...anchored, record], successorSeq: pred.seq + 1 }),
         position: pred.core.position,
         addAccepted: [{ id: `authz:${record.grantId}`, digest: record.digest }],
       });

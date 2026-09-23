@@ -125,6 +125,8 @@ export const continuityAdapter: WorkflowAdapter = {
   activatedNextAction(activeCapabilities, authorizedCapabilities) {
     const active = activeCapabilities.includes("begin");
     const authorized = authorizedCapabilities.includes("begin");
+    // Installed with zero active capabilities (DAT-001): same guidance, truthful about what is active.
+    const status = activeCapabilities.length === 0 ? "is installed but none of its capabilities is active" : `is active for: ${activeCapabilities.join(", ")}`;
     if (active && authorized) {
       return {
         description: `Workflow adapter ${CONTINUITY_ID} is active and "begin" was activated under explicit authorization. No governed work has been recorded yet: obtain the work objective and the exact next action from the human, then run \`treepo begin --work <label> --next <text> --requester <label>\` (begin still requires an eligible authorization when it runs).`,
@@ -139,12 +141,12 @@ export const continuityAdapter: WorkflowAdapter = {
     }
     if (authorized) {
       return {
-        description: `Workflow adapter ${CONTINUITY_ID} is active for: ${activeCapabilities.join(", ")}. An eligible authorization for "begin" already exists, but "begin" is not active, so governed work cannot begin yet. The remaining step is to activate it: \`treepo adapter activate ${CONTINUITY_ID} --capability begin --requester <label>\`. No work objective has been recorded.`,
+        description: `Workflow adapter ${CONTINUITY_ID} ${status}. An eligible authorization for "begin" already exists, but "begin" is not active, so governed work cannot begin yet. The remaining step is to activate it: \`treepo adapter activate ${CONTINUITY_ID} --capability begin --requester <label>\`. No work objective has been recorded.`,
         prerequisites: [],
       };
     }
     return {
-      description: `Workflow adapter ${CONTINUITY_ID} is active for: ${activeCapabilities.join(", ")}, but "begin" is not active, so governed work cannot begin yet. A human must grant authorization for "begin" (\`treepo authorize grant --adapter ${CONTINUITY_ID} --capability begin ...\`) and then activate it (\`treepo adapter activate ${CONTINUITY_ID} --capability begin ...\`). No work objective has been recorded.`,
+      description: `Workflow adapter ${CONTINUITY_ID} ${status}${activeCapabilities.length === 0 ? ". \"begin\" is therefore not active" : ", but \"begin\" is not active"}, so governed work cannot begin yet. A human must grant authorization for "begin" (\`treepo authorize grant --adapter ${CONTINUITY_ID} --capability begin ...\`) and then activate it (\`treepo adapter activate ${CONTINUITY_ID} --capability begin ...\`). No work objective has been recorded.`,
       prerequisites: [],
     };
   },

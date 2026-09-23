@@ -145,20 +145,27 @@ describe("DAT-001: bootstrap next action after workflow activation (shipped CLI)
       await ok(root, "route", "--intent", "begin work on this project");
       assert.deepEqual((await observeFresh(root)).nextAction, BOOTSTRAP);
 
-      // B. After installation: no workflow adapter is active yet, so the bootstrap instruction is still true.
+      // B. After installation. DAT-001 third correction: this step previously asserted the bootstrap action
+      // (the defect Phase Zero reproduced against d61c7cb); an installed workflow now resolves it.
       await ok(root, "adapter", "install", CONTINUITY, "--requester", "human");
       const b = await observeFresh(root);
       assert.equal(b.seq, 1);
       assert.equal(b.lastTransition.name, "adapter.install");
-      assert.deepEqual(b.nextAction, BOOTSTRAP);
+      assertNotBootstrap(b);
+      assert.equal(b.nextAction.id, "workflow-activated");
+      assert.match(b.nextAction.description, /installed but none of its capabilities is active/);
+      assert.match(b.nextAction.description, /treepo authorize grant/);
       assert.equal(b.workflow, null);
 
-      // C. After authorization: authorized but not active; the bootstrap instruction is still true.
+      // C. After authorization: authorized but not active (previously asserted the bootstrap action; see B).
       await ok(root, "authorize", "grant", "--adapter", CONTINUITY, "--capability", CONSEQUENTIAL_CAPS, "--grantor", "Human", "--statement", "I authorize the continuity workflow.", "--requester", "human");
       const c = await observeFresh(root);
       assert.equal(c.seq, 2);
       assert.equal(c.lastTransition.name, "authz.grant");
-      assert.deepEqual(c.nextAction, BOOTSTRAP);
+      assertNotBootstrap(c);
+      assert.equal(c.nextAction.id, "workflow-activated");
+      assert.doesNotMatch(c.nextAction.description, /treepo authorize grant/);
+      assert.match(c.nextAction.description, /treepo adapter activate treepo\.workflow\.continuity --capability begin/);
       assert.equal(c.workflow, null);
       assert.deepEqual(c.authorizedNow, []);
 
@@ -237,7 +244,10 @@ describe("DAT-001: bootstrap next action after workflow activation (shipped CLI)
     await withTempDir(async (dir) => {
       const { project } = await projectWith(dir, [probeAdapter()]);
       await installAdapter(project, { adapterId: PROBE_ID, requester: "human", ...(await prepared(project)) });
-      assert.deepEqual((await current(project)).current.object.core.nextAction, BOOTSTRAP);
+      // DAT-001 third correction: an installed workflow with zero active capabilities no longer keeps the bootstrap action.
+      const installedOnly = (await current(project)).current.object.core.nextAction;
+      assert.equal(installedOnly.id, "workflow-activated");
+      assert.match(installedOnly.description, /test\.probe is installed but none of its capabilities is active\. No governed work has been recorded yet/);
       const outcome = await activateAdapter(project, { adapterId: PROBE_ID, capabilities: ["inspect"], requester: "human", ...(await prepared(project)) });
       assert.equal(outcome.automatic, true);
       const after = (await current(project)).current.object;

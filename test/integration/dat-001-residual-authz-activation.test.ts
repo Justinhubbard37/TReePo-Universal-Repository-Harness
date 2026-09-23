@@ -107,7 +107,7 @@ const grantBegin = (root: string, ...extra: string[]): Promise<unknown> =>
   ok(root, "authorize", "grant", "--adapter", CONTINUITY, "--capability", "begin", "--grantor", "Human", "--statement", "begin is authorized", "--requester", "human", ...extra);
 
 /** Authorized but not active: the only remaining step is activation, never another grant. */
-function assertActivationRemains(o: Orientation): void {
+function assertActivationRemains(o: Orientation, opts: { zeroActive?: boolean } = {}): void {
   assert.equal(o.nextAction.id, "workflow-activated");
   assert.ok(continuity(o).authorizedCapabilities.includes("begin"), "begin is authorized");
   assert.ok(!continuity(o).activeCapabilities.includes("begin"), "begin is not active");
@@ -115,18 +115,18 @@ function assertActivationRemains(o: Orientation): void {
   assert.match(o.nextAction.description, /authorization for "begin" already exists/);
   assert.ok(o.nextAction.description.includes(ACTIVATE_BEGIN), "must identify activation of begin as the remaining step");
   assert.doesNotMatch(o.nextAction.description, /treepo begin --work/);
-  assertNoWorkInvented(o);
+  assertNoWorkInvented(o, opts);
 }
 
 /** Not authorized: the authorization gate is still stated. */
-function assertAuthorizationRequired(o: Orientation): void {
+function assertAuthorizationRequired(o: Orientation, opts: { zeroActive?: boolean } = {}): void {
   assert.equal(o.nextAction.id, "workflow-activated");
   assert.ok(!continuity(o).authorizedCapabilities.includes("begin"), "begin is not authorized");
   assert.match(o.nextAction.description, /treepo authorize grant --adapter treepo\.workflow\.continuity --capability begin/);
   assert.doesNotMatch(o.nextAction.description, /already exists/);
   assert.doesNotMatch(o.nextAction.description, /treepo begin --work/);
   assert.ok(!o.authorizedNow.some((a) => a.capability === "begin"), "no authority manufactured");
-  assertNoWorkInvented(o);
+  assertNoWorkInvented(o, opts);
 }
 
 function assertReady(o: Orientation): void {
@@ -137,10 +137,17 @@ function assertReady(o: Orientation): void {
   assertNoWorkInvented(o);
 }
 
-function assertNoWorkInvented(o: Orientation): void {
+function assertNoWorkInvented(o: Orientation, opts: { zeroActive?: boolean } = {}): void {
   assert.equal(o.position.label, "genesis");
   assert.equal(o.position.detail, "");
   assert.deepEqual(o.completed, []);
+  if (opts.zeroActive === true) {
+    // Installed with zero active capabilities: orientation shows no active workflow, and nothing was activated.
+    assert.equal(o.workflow, null);
+    assert.deepEqual(continuity(o).activeCapabilities, []);
+    assert.match(o.nextAction.description, /installed but none of its capabilities is active/);
+    return;
+  }
   assert.ok(o.workflow !== null);
   assert.equal(o.workflow.state, null);
 }
@@ -151,7 +158,9 @@ describe("DAT-001 residual: pre-work next action reflects authorization and acti
       const root = await initInstalled(dir);
       await grantBegin(root);
       const granted = await observeFresh(root);
-      assert.equal(granted.nextAction.id, BOOTSTRAP_ID, "nothing is active yet: the bootstrap instruction is still true");
+      // DAT-001 third correction: this previously asserted the bootstrap action with continuity installed and nothing active.
+      assert.notEqual(granted.nextAction.id, BOOTSTRAP_ID);
+      assertActivationRemains(granted, { zeroActive: true });
       await ok(root, "adapter", "activate", CONTINUITY, "--capability", "orient", "--requester", "human");
       const a = await observeFresh(root);
       assert.equal(a.lastTransition.name, "adapter.activate");

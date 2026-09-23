@@ -112,6 +112,7 @@ export async function activateAdapter(env: Env, request: ActivationRequest): Pro
 
   note("6:authority");
   const authz = await loadAnchoredAuthz(env.layout, state);
+  const installed = (await readInstalledRecords(env.layout)).map((r) => r.id);
   const authzRefs: string[] = [];
   for (const cap of requested) {
     if (declared.get(cap) === "consequential") {
@@ -141,7 +142,7 @@ export async function activateAdapter(env: Env, request: ActivationRequest): Pro
         transition: { name: "adapter.activate", requestDigest: ctx.requestDigest, requester: request.requester, authzRefs: [...new Set(authzRefs)].sort(), supersedes: [] },
         repoFacts: { workingCopy: ctx.workingCopy },
         surfaceDigests: ctx.surfaceDigests,
-        nextAction: preWorkNextAction({ registry: env.registry, predecessor: pred, activation, authz, successorSeq: pred.seq + 1 }),
+        nextAction: preWorkNextAction({ registry: env.registry, predecessor: pred, activation, installed, authz, successorSeq: pred.seq + 1 }),
         position: pred.core.position,
         adapter: { [ACTIVATION_NAMESPACE]: activation as unknown as StateObject["adapter"][string] },
       });
@@ -164,7 +165,8 @@ export async function installAdapter(env: Env, request: InstallRequest): Promise
   if (impl === undefined) fail("ADAPTER_UNAVAILABLE", `adapter ${request.adapterId} is not available in this core`, { adapterId: request.adapterId });
   const compat = isCompatible(impl.manifest);
   if (!compat.ok) fail("ADAPTER_INCOMPATIBLE", `adapter ${request.adapterId}: ${compat.reason}`, { adapterId: request.adapterId });
-  const already = (await readInstalledRecords(env.layout)).find((r) => r.id === request.adapterId);
+  const installed = (await readInstalledRecords(env.layout)).map((r) => r.id);
+  const already = installed.find((id) => id === request.adapterId);
   if (already !== undefined) fail("ADAPTER_ALREADY_INSTALLED", `adapter ${request.adapterId} is already installed`, { adapterId: request.adapterId });
   const record = { adapterApi: ADAPTER_API, coreApi: CORE_API, id: impl.manifest.id, version: impl.manifest.version, installedAtSeq: state.current.object.seq + 1 };
   const authz = await loadAnchoredAuthz(env.layout, state);
@@ -183,7 +185,7 @@ export async function installAdapter(env: Env, request: InstallRequest): Promise
         transition: { name: "adapter.install", requestDigest: ctx.requestDigest, requester: request.requester, authzRefs: [], supersedes: [] },
         repoFacts: { workingCopy: ctx.workingCopy },
         surfaceDigests: ctx.surfaceDigests,
-        nextAction: preWorkNextAction({ registry: env.registry, predecessor: pred, activation: activationOf(pred), authz, successorSeq: pred.seq + 1 }),
+        nextAction: preWorkNextAction({ registry: env.registry, predecessor: pred, activation: activationOf(pred), installed: [...installed, impl.manifest.id], authz, successorSeq: pred.seq + 1 }),
         position: pred.core.position,
       });
     },

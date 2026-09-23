@@ -890,3 +890,81 @@ Unchanged: unrelated recorded next actions (any position other than genesis carr
 - **Scope of the evaluation.** The recorded pre-work action is evaluated at the sequence of the state that records it. Sequence advances only through published transitions, and before `begin` those are exactly install, activate, grant and revoke, all of which re-derive the action. Expiry is therefore reflected at its own sequence, as `C (expiry…)` proves. Workflow transitions cannot publish at genesis other than `begin`, which leaves it. The programmatic `harness.publish` API, which has no CLI or `src` caller, takes a caller-built successor, including its next action, and is not covered. Any future framework transition able to publish at genesis would also need to use `preWorkNextAction`.
 - **Live-count line.** The agent-entry live-count limitation recorded for the first correction is unchanged.
 - **Acceptance runner.** `npm run accept` was not rerun, for the same reason as before: it would regenerate the committed Phase 10/11 acceptance reports.
+
+## Director Acceptance Trial DAT-001 third correction
+
+| Item | Value |
+|---|---|
+| Starting checkpoint | `d61c7cbc269a3dbb63e65aae4ea0e3c56dfc9fb2` (second DAT-001 correction), parent `068da89` |
+| Governing disposition | Phase Zero re-audited `d61c7cb` and returned **DAT-001 REOPENED, V1 BLOCKING**. A real Director Acceptance Trial exposed the installed-but-zero-active workflow path. A third bounded correction of DAT-001 only was authorized. DAT-001 remains open pending Phase Zero re-audit |
+| Correction checkpoint | The single commit that records this section (`fix: DAT-001 include installed zero-active workflow in pre-work readiness`), parent `d61c7cb` |
+| Production files | `src/adapters/readiness.ts`, `src/adapters/activation.ts`, `src/adapters/authorize.ts`, `src/adapters/workflow/continuity/index.ts`, `src/adapters/api.ts` (doc comment only) |
+| Test files | New `test/integration/dat-001-install-only.test.ts`; `test/integration/dat-001-bootstrap-next-action.test.ts` and `test/integration/dat-001-residual-authz-activation.test.ts` (assertions that treated `intake-complete` as correct after install; see below) |
+| Protected surfaces changed | 0 |
+| Raw evidence | `evidence/dat-001-third/` (ignored; delivered in the audit package; see its `NOTES.txt`). `evidence/dat-001/` and `evidence/dat-001-second/` are unchanged. The preserved Director Acceptance Trial repository was not used or touched |
+| Authority boundary | Candidate only. Phase Zero re-audit, the resumed Director Acceptance Trial, Director acceptance and release approval remain external gates |
+
+The two earlier DAT-001 sections are left unchanged. They record what each earlier correction claimed.
+
+### Remaining defect (reproduced by Phase Zero and independently before any change)
+
+init → route → install `treepo.workflow.continuity` → orient gives seq 1: continuity installed, no authorized or active capabilities, position genesis, validation PASS, drift false. `core.nextAction` was still `intake-complete` ("Select and activate a workflow adapter…").
+
+A `begin` grant with zero active capabilities left it unchanged as well. The independent pre-fix reproduction on unchanged `d61c7cb` is `01-prefix-reproduction-d61c7cb-windows.log`.
+
+### Root cause
+
+`preWorkNextAction` in `src/adapters/readiness.ts` found the workflow only among `Object.keys(input.activation)`. An installed workflow has no activation entry until at least one capability is active. So install, and grants made before any activation, found no workflow and returned the carried bootstrap action.
+
+### Correction
+
+- **Discovery.** `preWorkNextAction` receives the successor's installed adapter ids (`installed`) and discovers the workflow among installed ∪ activated ids, filtered to the workflow category exactly as before.
+  - Active capabilities are the activation entry's capabilities, or none.
+  - Authorization is evaluated as before (`evaluateAuthorization` on the successor's anchored set at the successor's sequence).
+  - The applicability rule is unchanged: position exactly genesis, and the carried action is the bootstrap or `workflow-activated`.
+- **Wiring.** `adapter.install` passes the existing installed ids plus the adapter being installed. `adapter.activate`, `authz.grant` and `authz.revoke` pass the installed ids read before publication. Those reads are guarded, like the authorization set, by the existing predecessor check and by validation of the anchored adapter-registry digest.
+- **Continuity wording.** When nothing is active, the text says the adapter "is installed but none of its capabilities is active" instead of "is active for: ".
+  - Neither authorized nor active: authorization, then activation, in that order.
+  - Authorized but not active: activation only.
+  - The four texts for non-empty active sets are byte-identical to `d61c7cb`.
+- **Generic fallback.** Uses the same installed wording.
+
+Unchanged: Router, authorization evaluation, activation layers, the adapter state model, bootstrap/onboarding, workflow behavior from `begin` on, transport, hydration/ROUTINE_DELTA, semantic memory, the Astra corrections, and every next action outside the genesis pre-work window.
+
+### Regressions
+
+`test/integration/dat-001-install-only.test.ts` uses the shipped CLI plus one API case. After every step it checks validation, drift, orient, and agreement of `.treepo/AGENT-ENTRY.md` with `orient --text`.
+
+| Case | Proves |
+|---|---|
+| A. init → route → install | Not `intake-complete`. Authorization and then activation of `begin` are required, in that order. Continuity is installed, nothing is authorized or active, position is genesis, and no objective is invented |
+| B. install → grant `begin` (zero active) | Activation only, with no second grant. Revoking before any activation restores authorization-then-activation |
+| C. install → activate `begin` without a grant | `AUTHORIZATION_MISSING`. `CURRENT` is byte-identical and the object set is unchanged (no successor) |
+| D, F | With only the repository adapter active and nothing installed, the bootstrap action remains. After install, repository-adapter activation re-derives the same action. Then the accepted cases: orient only → grant then activate; grant → activate `begin` only; activate → ready for `treepo begin` |
+| E | After `begin` records its action, none of these overwrite it: an API install of a second adapter, a grant, a revoke, repository-adapter activation, or capability activation |
+| G | A fresh child process with a minimal environment and only the repository path recovers the identical corrected action |
+
+**Changed assertions in earlier files.** These asserted that `intake-complete` is correct after continuity is installed, which the authorization forbids keeping. Everything else in those files is unchanged and passes.
+- First-correction file: step B after install, step C after grant, and the generic-fallback install check.
+- Residual file: step A after grant.
+
+### Verification
+
+- **Baseline on unchanged `d61c7cb` (Windows).** 270/270 on a pristine `git archive` extraction (`00b-…`). The main-working-copy attempt `00-…` overlapped with source edits and is recorded as invalid in `NOTES.txt`.
+- **Negative proof.** The three DAT-001 test files, as corrected, run against pristine `d61c7cb` sources give 8 pass and 8 fail on both Windows (`02-negative-proof-d61c7cb-windows.log`) and WSL2 (`08-wsl2-verification.log` §NEGATIVE PROOF).
+  - Failing: every install-only case (A, B, C, D/F, G), the first-correction A–D/G and generic-fallback tests, and residual A, each on the retained bootstrap action.
+  - Passing on `d61c7cb`: the already-accepted behavior, including post-`begin` preservation (E).
+- **Windows 11 Home build 26220, NTFS, Node 24.19.0 (final tree, `-r2` logs).**
+  - DAT-001 16/16; related suites 56/56.
+  - `npm run check`: typecheck PASS, **276/276** (51 suites), 0 fail/skipped/cancelled/todo.
+  - CLI install-only reproduction with fresh-agent recovery, zero-active grant and fail-closed activation: PASS (`06-…-r2`).
+  - Preserved partial-activation cases (second-correction tool, unmodified): PASS (`07-…-r2`).
+- **Ubuntu 26.04 under WSL2, native ext4 (`/home/heathen/TReePo-Fable-DAT001-Third`, scratch on ext4), Node 24.19.0, npm 11.17.0, TypeScript 6.0.3.** The checkpoint was cloned from a bundle and identity-checked as `d61c7cb`, then the correction patch was applied.
+  - DAT-001 16/16, related suites 56/56, `npm run check` **276/276**.
+  - Both CLI reproductions PASS (`08-wsl2-verification.log`). `/mnt/c` held only inputs.
+
+### Limitations (stated, not claimed away)
+
+- **Orientation wording.** With a workflow installed but nothing active, the derived orientation's "Workflow" line still reads "no workflow adapter is active; select one through the Router and activate it before governed work". This is non-authoritative presentation outside this correction's boundary. The exact next action, which the constraints direct agents to follow, is correct.
+- **Multiple installed workflows.** If more than one workflow adapter were installed, the lowest id is used, as the activation-map discovery already did. v1 ships one workflow adapter.
+- **Unchanged from earlier corrections.** The limitations recorded for the first and second corrections still apply: the live-count line in the agent entry, `harness.publish`, and `npm run accept` not rerun.
