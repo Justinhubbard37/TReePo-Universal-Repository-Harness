@@ -218,7 +218,12 @@ describe("DAT-001: bootstrap next action after workflow activation (shipped CLI)
 
       // Once a human grants and begin is activated, the provisional action is recomputed truthfully.
       await ok(root, "authorize", "grant", "--adapter", CONTINUITY, "--capability", "begin", "--grantor", "Human", "--statement", "begin ok", "--requester", "human");
-      assert.deepEqual((await observeFresh(root)).nextAction, e.nextAction, "a grant alone carries the next action forward");
+      // DAT-001 second correction: this line previously asserted that the grant carried the now-false
+      // "must grant authorization" action forward (the residual defect Phase Zero reproduced against 068da89).
+      const granted = await observeFresh(root);
+      assert.equal(granted.nextAction.id, "workflow-activated");
+      assert.doesNotMatch(granted.nextAction.description, /treepo authorize grant/, "an existing grant must not be requested again");
+      assert.match(granted.nextAction.description, /treepo adapter activate treepo\.workflow\.continuity --capability begin/);
       await ok(root, "adapter", "activate", CONTINUITY, "--capability", "begin", "--requester", "human");
       const ready = await observeFresh(root);
       assertNoWorkInvented(ready);

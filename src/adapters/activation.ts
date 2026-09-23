@@ -18,12 +18,13 @@ import { ContinuityError } from "../core/errors.ts";
 import { digestOf } from "../core/hash.ts";
 import { evaluateAuthorization, loadAnchoredAuthz, requireAuthorization } from "../core/authz/index.ts";
 import type { Layout } from "../core/state/layout.ts";
-import type { NextAction, StateObject, WorkingCopyFacts } from "../core/state/schema.ts";
+import type { StateObject, WorkingCopyFacts } from "../core/state/schema.ts";
 import { buildSuccessor } from "../core/state/successor.ts";
 import { requireValidState, type ValidatedState } from "../core/state/validate.ts";
 import { publishTransition, type PublishPhase, type PublishResult } from "../core/tx/publish.ts";
 import type { Platform } from "../platform/index.ts";
-import { ACTIVATION_NAMESPACE, ADAPTER_API, activationOf, BOOTSTRAP_NEXT_ACTION, CORE_API, GENESIS_POSITION, isWorkflowAdapter, WORKFLOW_ACTIVATED_ACTION_ID, type AdapterImplementation, type Consequence } from "./api.ts";
+import { ACTIVATION_NAMESPACE, ADAPTER_API, activationOf, CORE_API, type AdapterImplementation, type Consequence } from "./api.ts";
+import { preWorkNextAction } from "./readiness.ts";
 import { observeRepository, type RepositoryFacts } from "./repo/git/index.ts";
 import { checkApplicability, encodeInstalledRecord, installedRecordPath, isCompatible, readInstalledRecords, type Registry } from "./registry.ts";
 
@@ -87,29 +88,11 @@ export async function resolveInstalledAdapter(env: Env, adapterId: string, note:
   return impl;
 }
 
-function sameNextAction(a: NextAction, b: { readonly id: string; readonly description: string; readonly prerequisites: readonly string[] }): boolean {
-  return a.id === b.id && a.description === b.description && a.prerequisites.length === b.prerequisites.length && a.prerequisites.every((p, i) => p === b.prerequisites[i]);
-}
-
-/**
- * DAT-001. Genesis records BOOTSTRAP_NEXT_ACTION ("select and activate a workflow adapter").
- * Activating a workflow adapter satisfies that instruction, so while no governed work exists
- * (position still exactly genesis: no workflow transition has ever run) the successor records what
- * is now true instead. It also recomputes its own earlier WORKFLOW_ACTIVATED_ACTION_ID action when
- * further capabilities are activated before work begins. Every other next action carries forward
- * unchanged. Nothing here grants authority or supplies a work objective.
- */
-function activationNextAction(impl: AdapterImplementation, pred: StateObject, activeCapabilities: readonly string[]): NextAction {
-  const carried = pred.core.nextAction;
-  if (impl.manifest.category !== "workflow") return carried;
-  if (pred.core.position.label !== GENESIS_POSITION.label || pred.core.position.detail !== GENESIS_POSITION.detail) return carried;
-  if (!sameNextAction(carried, BOOTSTRAP_NEXT_ACTION) && carried.id !== WORKFLOW_ACTIVATED_ACTION_ID) return carried;
-  const id = impl.manifest.id;
-  const supplied = isWorkflowAdapter(impl) ? impl.activatedNextAction?.(activeCapabilities) : undefined;
-  const description =
-    supplied?.description ??
-    `Workflow adapter ${id} is active for: ${activeCapabilities.join(", ")}. No governed work has been recorded yet; obtain the work objective from the human before exercising any consequential capability.`;
-  return { id: WORKFLOW_ACTIVATED_ACTION_ID, description, prerequisites: [...new Set(supplied?.prerequisites ?? [])].sort() };
+/** The authorization set loaded before publication must be the one anchored by the predecessor the successor is built on. */
+export function requireSamePredecessor(loadedStateId: string, predecessorId: string): void {
+  if (loadedStateId !== predecessorId) {
+    throw new ContinuityError({ code: "STALE_PREDECESSOR", message: "authorization set was read from a different state than the predecessor being extended", details: { loaded: loadedStateId, predecessor: predecessorId } });
+  }
 }
 
 export async function activateAdapter(env: Env, request: ActivationRequest): Promise<ActivationOutcome> {
@@ -147,6 +130,7 @@ export async function activateAdapter(env: Env, request: ActivationRequest): Pro
     observeWorkingCopy: async () => (await observeRepository(env.platform, env.layout.root)).workingCopy,
     ...(request.observer === undefined ? {} : { observer: request.observer }),
     build: (ctx) => {
+      requireSamePredecessor(state.current.id, ctx.predecessor.id);
       const pred = ctx.predecessor.object;
       const activation = { ...activationOf(pred) };
       const existing = activation[request.adapterId];
@@ -157,7 +141,7 @@ export async function activateAdapter(env: Env, request: ActivationRequest): Pro
         transition: { name: "adapter.activate", requestDigest: ctx.requestDigest, requester: request.requester, authzRefs: [...new Set(authzRefs)].sort(), supersedes: [] },
         repoFacts: { workingCopy: ctx.workingCopy },
         surfaceDigests: ctx.surfaceDigests,
-        nextAction: activationNextAction(impl, pred, capabilities),
+        nextAction: preWorkNextAction({ registry: env.registry, predecessor: pred, activation, authz, successorSeq: pred.seq + 1 }),
         position: pred.core.position,
         adapter: { [ACTIVATION_NAMESPACE]: activation as unknown as StateObject["adapter"][string] },
       });
@@ -183,6 +167,7 @@ export async function installAdapter(env: Env, request: InstallRequest): Promise
   const already = (await readInstalledRecords(env.layout)).find((r) => r.id === request.adapterId);
   if (already !== undefined) fail("ADAPTER_ALREADY_INSTALLED", `adapter ${request.adapterId} is already installed`, { adapterId: request.adapterId });
   const record = { adapterApi: ADAPTER_API, coreApi: CORE_API, id: impl.manifest.id, version: impl.manifest.version, installedAtSeq: state.current.object.seq + 1 };
+  const authz = await loadAnchoredAuthz(env.layout, state);
   const requestDigest = digestOf({ kind: "adapter.install", adapterId: request.adapterId, requester: request.requester, predecessorId: request.expectedPredecessorId });
   return publishTransition(env.platform, env.layout, {
     expectedPredecessorId: request.expectedPredecessorId,
@@ -190,14 +175,17 @@ export async function installAdapter(env: Env, request: InstallRequest): Promise
     requestDigest,
     observeWorkingCopy: async () => (await observeRepository(env.platform, env.layout.root)).workingCopy,
     surfaceChanges: [{ path: installedRecordPath(impl.manifest.id), action: "add", bytes: encodeInstalledRecord(record) }],
-    build: (ctx) =>
-      buildSuccessor({
+    build: (ctx) => {
+      requireSamePredecessor(state.current.id, ctx.predecessor.id);
+      const pred = ctx.predecessor.object;
+      return buildSuccessor({
         predecessor: ctx.predecessor,
         transition: { name: "adapter.install", requestDigest: ctx.requestDigest, requester: request.requester, authzRefs: [], supersedes: [] },
         repoFacts: { workingCopy: ctx.workingCopy },
         surfaceDigests: ctx.surfaceDigests,
-        nextAction: ctx.predecessor.object.core.nextAction,
-        position: ctx.predecessor.object.core.position,
-      }),
+        nextAction: preWorkNextAction({ registry: env.registry, predecessor: pred, activation: activationOf(pred), authz, successorSeq: pred.seq + 1 }),
+        position: pred.core.position,
+      });
+    },
   });
 }

@@ -16,11 +16,16 @@ import { buildSuccessor } from "../core/state/successor.ts";
 import { requireValidState } from "../core/state/validate.ts";
 import { publishTransition, type PublishResult } from "../core/tx/publish.ts";
 import type { Platform } from "../platform/index.ts";
+import { requireSamePredecessor } from "./activation.ts";
+import { activationOf } from "./api.ts";
+import { preWorkNextAction } from "./readiness.ts";
+import type { Registry } from "./registry.ts";
 import { observeRepository } from "./repo/git/index.ts";
 
 interface Env {
   readonly platform: Platform;
   readonly layout: Layout;
+  readonly registry: Registry;
 }
 
 export interface GrantRequest {
@@ -55,6 +60,7 @@ export async function grantAuthorization(env: Env, request: GrantRequest): Promi
     issuedAtSeq,
     expiresAtSeq: request.expiresAfterSeqs === undefined ? null : issuedAtSeq + request.expiresAfterSeqs,
   });
+  const anchored = await loadAnchoredAuthz(env.layout, state);
   const requestDigest = digestOf({ kind: "authz.grant", grantId: record.grantId, requester: request.requester, predecessorId: request.expectedPredecessorId });
   const result = await publishTransition(env.platform, env.layout, {
     expectedPredecessorId: request.expectedPredecessorId,
@@ -62,16 +68,19 @@ export async function grantAuthorization(env: Env, request: GrantRequest): Promi
     requestDigest,
     observeWorkingCopy: async () => (await observeRepository(env.platform, env.layout.root)).workingCopy,
     surfaceChanges: [{ path: `state/authz/${record.grantId}.json`, action: "add", bytes: canonicalBytes(record) }],
-    build: (ctx) =>
-      buildSuccessor({
+    build: (ctx) => {
+      requireSamePredecessor(state.current.id, ctx.predecessor.id);
+      const pred = ctx.predecessor.object;
+      return buildSuccessor({
         predecessor: ctx.predecessor,
         transition: { name: "authz.grant", requestDigest: ctx.requestDigest, requester: request.requester, authzRefs: [record.grantId], supersedes: [] },
         repoFacts: { workingCopy: ctx.workingCopy },
         surfaceDigests: ctx.surfaceDigests,
-        nextAction: ctx.predecessor.object.core.nextAction,
-        position: ctx.predecessor.object.core.position,
+        nextAction: preWorkNextAction({ registry: env.registry, predecessor: pred, activation: activationOf(pred), authz: [...anchored, record], successorSeq: pred.seq + 1 }),
+        position: pred.core.position,
         addAccepted: [{ id: `authz:${record.grantId}`, digest: record.digest }],
-      }),
+      });
+    },
   });
   return { result, record };
 }
@@ -104,16 +113,19 @@ export async function revokeAuthorization(env: Env, request: RevokeRequest): Pro
     requestDigest,
     observeWorkingCopy: async () => (await observeRepository(env.platform, env.layout.root)).workingCopy,
     surfaceChanges: [{ path: `state/authz/${record.grantId}.json`, action: "add", bytes: canonicalBytes(record) }],
-    build: (ctx) =>
-      buildSuccessor({
+    build: (ctx) => {
+      requireSamePredecessor(state.current.id, ctx.predecessor.id);
+      const pred = ctx.predecessor.object;
+      return buildSuccessor({
         predecessor: ctx.predecessor,
-        transition: { name: "authz.revoke", requestDigest: ctx.requestDigest, requester: request.requester, authzRefs: [record.grantId], supersedes: [`authz:${target.grantId}`].filter((id) => ctx.predecessor.object.core.accepted.some((i) => i.id === id)) },
+        transition: { name: "authz.revoke", requestDigest: ctx.requestDigest, requester: request.requester, authzRefs: [record.grantId], supersedes: [`authz:${target.grantId}`].filter((id) => pred.core.accepted.some((i) => i.id === id)) },
         repoFacts: { workingCopy: ctx.workingCopy },
         surfaceDigests: ctx.surfaceDigests,
-        nextAction: ctx.predecessor.object.core.nextAction,
-        position: ctx.predecessor.object.core.position,
+        nextAction: preWorkNextAction({ registry: env.registry, predecessor: pred, activation: activationOf(pred), authz: [...anchored, record], successorSeq: pred.seq + 1 }),
+        position: pred.core.position,
         addAccepted: [{ id: `authz:${record.grantId}`, digest: record.digest }],
-      }),
+      });
+    },
   });
   return { result, record };
 }

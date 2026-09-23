@@ -810,3 +810,83 @@ Unchanged: install/authorization carry-forward, Router behavior, activation laye
 ### Limitation (stated, not claimed away)
 
 The derived agent entry contains one live line: the count of uncommitted `.treepo` files. The entry is written before it exists as a file, so that count can differ by one from a later `treepo orient --text`. This behavior predates the correction, is non-authoritative, and was not changed here. The DAT-001 agreement checks exclude only that line. `npm run accept` was not rerun, because it regenerates the committed Phase 10/11 acceptance reports, and this correction does not rewrite them.
+
+## Director Acceptance Trial DAT-001 second correction
+
+| Item | Value |
+|---|---|
+| Starting checkpoint | `068da891d066a5dbdcc185f76c93ac0831c1b735` (first DAT-001 correction), parent `fb090ac` |
+| Governing disposition | Phase Zero re-audited `068da89`. It accepted the corrected original trial sequence (full activation including `begin` yields `workflow-activated`; orient, agent entry, validation and drift agree) and returned **DAT-001 CORRECTION REQUIRED** for a residual defect in two transition orders. A second bounded correction of DAT-001 only was authorized. DAT-001 remains open pending Phase Zero re-audit |
+| Correction checkpoint | The single commit that records this section (`fix: DAT-001 derive pre-work next action from authorization and activation state`), parent `068da89` |
+| Production files | New `src/adapters/readiness.ts`; `src/adapters/activation.ts`, `src/adapters/authorize.ts`, `src/adapters/api.ts`, `src/adapters/workflow/continuity/index.ts` |
+| Test files | New `test/integration/dat-001-residual-authz-activation.test.ts`; `test/integration/dat-001-bootstrap-next-action.test.ts` (one assertion; see below) |
+| Protected surfaces changed | 0 |
+| Raw evidence | `evidence/dat-001-second/` (ignored; delivered in the audit package). The first-correction evidence `evidence/dat-001/` is unchanged |
+| Authority boundary | Candidate only. Phase Zero re-audit, the resumed Director Acceptance Trial, Director acceptance and release approval remain external gates |
+
+The section above ("Director Acceptance Trial DAT-001 correction") is left unchanged. It is the record of what the first correction claimed at `068da89`.
+
+### Residual defect (reproduced by Phase Zero against `068da89`)
+
+- **Case A, grant first.** init → install continuity → grant `begin` → activate only `orient`. `begin` was authorized but not active. Validation was ok and drift false, but the next action said a human must *grant authorization for `begin`* and then activate it.
+- **Case B, activation first.** init → install → activate only `orient` → grant `begin`. `authz.grant` carried forward the action that still said authorization must be granted.
+
+In both cases the derived agent entry repeated the false instruction.
+
+### Residual root cause
+
+The first correction chose the pre-work text from the **active** capabilities only (`activatedNextAction(activeCapabilities)`), so "`begin` not active" was always rendered as "grant and activate". It was also recomputed only by `adapter.activate`. `authz.grant` and `authz.revoke` (and `adapter.install`) still copied the predecessor next action unchanged, even though they change or age the facts that the action describes.
+
+### Correction
+
+- **New `src/adapters/readiness.ts`: `preWorkNextAction`.** It uses the same applicability rule as the first correction: position exactly genesis, and the carried action is the genesis bootstrap action or the framework's own `workflow-activated` action. Otherwise the carried action is returned unchanged.
+  - When a workflow adapter is active in the **successor's** activation map, the helper derives the action from two deterministic facts: that adapter's active capabilities, and the consequential capabilities covered by an eligible anchored authorization. Eligibility is checked with the existing `evaluateAuthorization` against the **successor's** authorization set, at the **successor's** sequence number.
+  - No authority is created, evaluation is not changed, and no work objective is invented.
+- **Wiring.** `adapter.install`, `adapter.activate`, `authz.grant` and `authz.revoke` use the helper.
+  - Grant and revoke evaluate the anchored set plus the record they add.
+  - Each build fails closed (`STALE_PREDECESSOR`) if the authorization set was read from a state other than the predecessor being extended.
+- **API.** `WorkflowAdapter.activatedNextAction(activeCapabilities, authorizedCapabilities)` receives both facts.
+- **Continuity adapter.** It distinguishes four cases:
+  1. `begin` active and authorized: the ready text, byte-identical to the first correction's text accepted by Phase Zero.
+  2. `begin` authorized but not active: authorization already exists, and the remaining step is `treepo adapter activate treepo.workflow.continuity --capability begin …`. It never asks for another grant.
+  3. `begin` neither authorized nor active: grant, then activate (unchanged text).
+  4. `begin` active but no longer covered by an eligible grant (revoked or expired): grant only.
+
+Unchanged: unrelated recorded next actions (any position other than genesis carries forward), prior state objects and lineage, authorization evaluation and activation layers, Router, workflow behaviour including `begin`, transport, hydration/ROUTINE_DELTA, semantic memory and the Astra corrections.
+
+### Regression evidence
+
+`test/integration/dat-001-residual-authz-activation.test.ts` drives the shipped CLI. After every step it checks validation, drift, `orient`, and agreement between `.treepo/AGENT-ENTRY.md` and `orient --text` (excluding the live uncommitted-file count line, as before).
+
+| Test | What it proves |
+|---|---|
+| A | Grant `begin`, then activate `orient`: `begin` is authorized and inactive. The action names activation of `begin` and does not request a grant. Activating `begin` then gives the ready action |
+| B | Activate `orient`, then grant `begin`. Before the grant, authorization is truthfully required. After it, `authz.grant` records the activation-remaining action. Activating `begin` gives the ready action |
+| C | Without an eligible `begin` authorization the gate is still stated: no grant, a grant for `progress` only (activating `begin` is refused `AUTHORIZATION_MISSING`), and a granted-then-revoked `begin` |
+| C (expiry, active-but-unauthorized) | A `begin` grant eligible through seq 3: activation-remaining at seq 3, and authorization-required after the next transition at seq 4. With `begin` active and then revoked, the action asks for authorization only, and `begin` itself is refused |
+| E, F | After `begin` records its supplied action (`na-N`, position `active`), later grants, activations, repository-adapter activation and revocations never overwrite it |
+
+**One first-correction assertion changed.** In the first-correction file, test E.2 asserted "a grant alone carries the next action forward". That is exactly Case B's defective behaviour, so it now asserts that the grant records the activation step and does not request a grant again. The file's other tests, including the authoritative-only D test and the original trial path, are unchanged and pass.
+
+### Verification
+
+- **Baseline on unchanged `068da89` (Windows).** `npm run check` 265/265 (`00-baseline-check-068da89.log`). It was repeated in a pristine temporary worktree after the helper file had been created in the main working copy, again 265/265 (`00b-baseline-check-068da89-pristine-worktree.log`).
+- **Negative proof against `068da89`.** Pristine worktree plus the two test files. Windows: `01-negative-proof-068da89-windows.log`; WSL2 ext4: `06-wsl2-verification.log` §NEGATIVE PROOF. Both give 5 pass and 5 fail:
+  - Failing: residual A, B, C, C-expiry, and the corrected E.2 assertion, each on "must not ask for authorization that already exists" or "an existing grant must not be requested again".
+  - Passing on `068da89` (the accepted portion): the authoritative-only D test, the original trial A–D/G, the generic fallback, first-correction F, and residual E/F.
+- **Against `fb090ac`.** 0/10 pass (`01b-negative-proof-fb090ac-windows.log`). The original first-correction negative proof in `evidence/dat-001/` is preserved unchanged.
+- **Windows 11 Home build 26220, NTFS, Node 24.19.0 (corrected tree).**
+  - DAT-001 regressions 10/10 (`02-dat001-regressions-windows.log`).
+  - Related suites 56/56 (`03-related-tests-windows.log`).
+  - `npm run check`: typecheck PASS, **270/270** (50 suites), 0 fail/skipped/cancelled/todo (`04-full-check-windows.log`).
+  - Real CLI reproductions in fresh Git repositories, PASS with no failed checks (`05-cli-residual-windows.log`, tool `tools/cli-residual.mjs`). Covered: Case A, Case B, no authorization, and the original trial path followed by `begin`. Every step shows validation ok, drift false, the entry agreeing with orientation, and the entry's next-action line equal to `core.nextAction`.
+- **Ubuntu 26.04 under WSL2, native ext4 (`/home/heathen/TReePo-Fable-DAT001-Second`, scratch repositories on ext4), Node 24.19.0, npm 11.17.0, TypeScript 6.0.3.** The checkpoint was cloned from a bundle and identity-checked as `068da89`, then the correction patch was applied.
+  - DAT-001 10/10, related suites 56/56, `npm run check` **270/270**.
+  - CLI reproductions PASS (`06-wsl2-verification.log`, tool `tools/wsl-verify.sh`). `/mnt/c` held only the input bundle, patch and tools.
+- **Encoding.** See `ENCODING-NOTE.txt` for the mixed-encoding Windows PowerShell logs and one wrapper line in the WSL log.
+
+### Limitations (stated, not claimed away)
+
+- **Scope of the evaluation.** The recorded pre-work action is evaluated at the sequence of the state that records it. Sequence advances only through published transitions, and before `begin` those are exactly install, activate, grant and revoke, all of which re-derive the action. Expiry is therefore reflected at its own sequence, as `C (expiry…)` proves. Workflow transitions cannot publish at genesis other than `begin`, which leaves it. The programmatic `harness.publish` API, which has no CLI or `src` caller, takes a caller-built successor, including its next action, and is not covered. Any future framework transition able to publish at genesis would also need to use `preWorkNextAction`.
+- **Live-count line.** The agent-entry live-count limitation recorded for the first correction is unchanged.
+- **Acceptance runner.** `npm run accept` was not rerun, for the same reason as before: it would regenerate the committed Phase 10/11 acceptance reports.
