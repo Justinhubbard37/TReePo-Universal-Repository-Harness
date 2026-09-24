@@ -994,3 +994,15 @@ Unchanged: Router, authorization evaluation, activation layers, the adapter stat
 | Results | 299/299 on both environments; no existing test modified |
 | Record | `ACS-001-Machine-CLI.md` §10 |
 | Raw evidence | `evidence/acs-001/correction-1/r1/` (ignored; delivered in the correction audit package) |
+
+## ACS-001 Correction 2 — exact ownership of npm's PowerShell shim
+
+| Item | Record |
+|---|---|
+| Authority | Phase Zero disposition *ACS-001 CORRECTION REQUIRED* on `676d67bd5a3512ceb7ebd48b0be07f8f5235e61c`; F1/F2 closed; architecture accepted; one defect |
+| Starting point | `676d67b` (parent `417a18c`), clean; 299/299 on Windows 11/NTFS |
+| Finding | F3: the substring ownership check deleted a foreign `treepo.ps1` that named the TReePo target in a comment |
+| Implementation | `src/install/windows-command.ts`: complete-file byte comparison against npm 11.17.0's reconstructed shims (verified against captured real npm output); explicit owned/absent/not-owned states; refusal without mutation and a non-zero lifecycle exit |
+| Tests | `test/unit/windows-command-ownership.test.ts` (6, both platforms), `test/e2e/installed-cli-shim-ownership.test.ts` (4, Windows); fixtures of `test/unit/windows-command.test.ts` replaced by the real npm shims |
+| Record | `ACS-001-Machine-CLI.md` §11 |
+| Raw evidence | `evidence/acs-001/correction-2/r1/` (ignored; delivered in the Correction 2 audit package) |

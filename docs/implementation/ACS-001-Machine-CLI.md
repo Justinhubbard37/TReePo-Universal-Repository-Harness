@@ -180,7 +180,7 @@ The new tests were run against **unchanged** `af7e43f` sources (`05-new-tests-ag
 ### 10.3 Implementation
 
 - **F1:** the package declares an npm `postinstall` hook that, **for global installs only**, calls `dist/src/install/windows-command.js` (source `src/install/windows-command.ts`).
-  - On Windows it removes npm's `treepo.ps1` shim for this package's own entry, and only if that file is exactly npm's shim for the installed `dist/bin/treepo.js` (target derived from the real install layout) and `treepo.cmd` is present. A foreign `.ps1` is never touched.
+  - On Windows it removes npm's `treepo.ps1` shim for this package's own entry. **Corrected by Correction 2 (§11):** as shipped in Correction 1, the check only looked for the target path as a substring, so it did not establish that the file was npm's shim; Phase Zero showed a foreign script naming the target in a comment being deleted. Ownership is now a complete-file byte comparison (§11.3), and `treepo.cmd` must itself be npm's unmodified shim.
   - PowerShell then resolves bare `treepo` to npm's `.cmd` shim as an Application, and execution policy does not govern `.cmd` files. cmd resolves the same shim; Git Bash resolves npm's extensionless sh shim.
   - Execution policy is never read or changed, nothing needs elevation, no profile is edited, and the agent entry stays shell-neutral.
   - The hook command is guarded by `npm_config_global`, so `npm ci` in a development checkout is unaffected. On Linux the module does nothing.
@@ -218,3 +218,89 @@ The new tests were run against **unchanged** `af7e43f` sources (`05-new-tests-ag
 - Windows PowerShell 5.1 is the PowerShell proven. PowerShell 7 (`pwsh`) is not installed on the test host and is not claimed.
 - The Windows proof uses a disposable prefix standing in for `%APPDATA%\npm`. That the real user PATH contains `%APPDATA%\npm` was checked read-only.
 - The WSL proof uses a fresh `/etc/skel` home and Ubuntu's stock `~/.profile`. Users with a custom `~/.bash_profile` or `~/.bash_login`, which make bash skip `~/.profile`, must add `~/.local/bin` to PATH themselves.
+
+## 11. Correction 2 — exact ownership of npm's PowerShell shim (Phase Zero re-audit of `676d67b`)
+
+**Authority:** Phase Zero disposition *ACS-001 CORRECTION REQUIRED* on `676d67bd5a3512ceb7ebd48b0be07f8f5235e61c`. The original accessibility findings (F1, F2) are closed, and the ACS-001 architecture is accepted. This correction addresses exactly one defect. Prior evidence (`evidence/acs-001/r1/`, `evidence/acs-001/correction-1/r1/`) and prior audit packages are preserved unchanged.
+
+### 11.1 Finding
+
+**F3:** the Correction 1 guard treated `treepo.ps1` as npm's shim when the file *contained* the target string `$basedir/…/treepo/dist/bin/treepo.js`. Phase Zero showed an unrelated script naming that target only in a comment being classified as owned and deleted, by both the source and the installed compiled implementation. The Correction 1 unit test missed it, because its foreign fixture lacked the target string and its "owned" fixture was itself a three-line fragment.
+
+Parent reproduction (`evidence/acs-001/correction-2/r1/04-parent-negative-staged-guard.log`): the unchanged `676d67b` artifact (SHA-256 `bb017cb8…`) was installed with `npm install -g --ignore-scripts`, giving npm's real post-bin-link layout. With the compiled parent guard run as npm's lifecycle runs it:
+- the **foreign-comment script was DELETED**, and the guard printed "npm's treepo.ps1 shim removed" with exit 0;
+- npm shims with an appended statement or converted line endings were also deleted;
+- an unrelated script, a changed-target shim, and a missing `treepo.cmd` all reported success, although bare `treepo` was not established.
+
+### 11.2 Requirements
+
+| ID | Requirement |
+|---|---|
+| ACS-C2-WIN-01 | The independent foreign-comment fixture is rejected, stays byte-identical, and is never deleted or modified |
+| ACS-C2-WIN-02 | npm 11.17.0's actual shim from the supported layout is accepted; only that `.ps1` is removed; `treepo.cmd` remains; bare `treepo` satisfies the PowerShell contract |
+| ACS-C2-WIN-03 | A legitimate shim with any modification is rejected, stays byte-identical, and command exposure is not claimed |
+| ACS-C2-WIN-04 | A wholly unrelated script at `treepo.ps1` is preserved, and ownership is refused |
+| ACS-C2-WIN-05 | An absent `.ps1` is not an error when the legitimate command surface establishes bare `treepo`; otherwise the install fails clearly |
+| ACS-C2-WIN-06 | Normal install, reinstall and uninstall stay sane; the guard never deletes a file it cannot prove it owns |
+
+### 11.3 Ownership model
+
+`src/install/windows-command.ts`:
+- **Expected shims:** `npmShims(binDir, entryFile)` reconstructs the complete `treepo.ps1` (LF) and `treepo.cmd` (CRLF) that npm 11.17.0 (`cmd-shim` 8.0.0) writes. The inputs are the entry's shebang (`#!/usr/bin/env node`, enforced by the build and re-checked here) and the entry path relative to the bin directory, derived from the real install location.
+  - The reconstruction was verified **byte for byte** against shims captured verbatim from a real `npm install -g --ignore-scripts` (`test/fixtures/npm-11.17.0-windows-global-shims.json`, stored as JSON so Git line-ending normalization cannot alter it).
+  - It was re-verified against a fresh real layout in every Windows e2e run.
+- **Ownership states:** `shimState(file, expected)` uses `lstat` and never follows links.
+  - `absent` when the file does not exist;
+  - `not-owned` for anything that is not a regular file;
+  - `owned` **only** when the complete file bytes equal the expected bytes;
+  - otherwise `not-owned`.
+- **Why this is sufficient:** the comparison is over the entire file.
+  - A foreign file cannot qualify by mentioning the target anywhere.
+  - Any modification cannot qualify: added, removed or changed statements, a different target, CRLF conversion, a BOM, trailing whitespace, or truncation.
+  - A directory or link cannot qualify.
+  - An absent file is a separate, explicit state.
+  - The expected bytes are specific to this package's entry and this bin directory.
+- **`establishWindowsCommand(binDir, entryFile)`**, in order:
+  1. The entry must carry the expected shebang, otherwise refuse.
+  2. `treepo.cmd` must be `owned`. If it is missing or not owned, refuse: bare `treepo` cannot be established.
+  3. If `treepo.ps1` is `owned`, delete that file only (A, owned shim).
+  4. If it is `absent`, succeed without deleting anything (B, absent shim).
+  5. If it is `not-owned`, refuse: "an unexpected PowerShell command surface exists at …; TReePo refused to delete, modify, rename or overwrite it" (C, foreign/modified/ambiguous).
+  - Every refusal throws before any mutation.
+- **`postinstall()`** (global Windows installs only) reports a refusal on stderr, "installation incomplete: … The canonical `treepo` command was not established; TReePo changed no command file", and sets exit code 1. npm then reports the lifecycle as failed (`npm error code 1 … command failed`, evidence 07). A non-standard global layout is also refused.
+- **Kept interface:** `removePowerShellShim` keeps its Correction 1 interface but uses the strict model. It returns `not-owned` without mutating anything whenever ownership is not established.
+- **Not claimed:** rollback beyond what npm itself performs. TReePo's guarantees are:
+  - no foreign file is mutated by TReePo;
+  - a refusal is never reported as success;
+  - the reason is stated.
+- **Supported npm only:** the expected shim is that of the supported npm 11.17.0. A different npm writing a different shim yields `not-owned`, so the install fails clearly instead of deleting anything.
+
+### 11.4 Proof method (two deliberately separate proofs)
+
+- **Staged guard:** a fresh prefix receives npm's **real** post-bin-link layout (`npm install -g --ignore-scripts`: npm writes all three shims and runs no lifecycle). `treepo.ps1` / `treepo.cmd` are then staged, and the installed package's **compiled** `postinstall` runs exactly as npm's lifecycle runner does (`cmd.exe /d /s /c "<script>"`, cwd = package root, `npm_config_global=true`; evidence 07 shows npm using this exact command line).
+  - `npm rebuild` is deliberately not the primary harness. npm's own bin check rejects non-shim files (`EEXIST`) before any script runs, which would hide TReePo's guard.
+  - Evidence 04a preserves that observation, correctly attributed to npm. It also shows the parent guard deleting modified shims that do pass npm's check.
+- **Real install:** a normal `npm install -g`, a reinstall and an uninstall, plus npm's own refusal to link over a pre-existing foreign `treepo.ps1`. That refusal is npm's protection, not TReePo's.
+
+### 11.5 Traceability
+
+| Step | Requirement | Implementation | Regression | Evidence (`evidence/acs-001/correction-2/r1/`) | Status |
+|---|---|---|---|---|---|
+| Phase Zero finding F3 | — | parent `676d67b` | — | 04 (foreign-comment DELETED, exit 0), 04a | REPRODUCED |
+| ownership correction | all | `src/install/windows-command.ts` | `test/unit/windows-command-ownership.test.ts` (6 tests, both platforms) | 05 (new tests vs parent: fail at import; the behavioral parent result is 04) | IMPLEMENTED |
+| foreign preservation | ACS-C2-WIN-01, -04 | as above | unit WIN-01, WIN-04; e2e WIN-01/03/04 (Windows) | 06 and post-commit (exit 1, byte-identical) | PROVEN-WIN |
+| modified-shim refusal | ACS-C2-WIN-03 | as above | unit WIN-03 (7 variants); e2e WIN-01/03/04 | 06, 07, post-commit | PROVEN-WIN |
+| owned-shim removal | ACS-C2-WIN-02 | as above | e2e WIN-02 (real npm shims; bare `treepo` under Restricted, AllSigned, RemoteSigned with a repository command) | 06 and post-commit | PROVEN-WIN |
+| absent shim | ACS-C2-WIN-05 | as above | unit WIN-05; e2e WIN-05 | 06 (ABSENT-PS1 exit 0; ABSENT-PS1-AND-CMD exit 1) | PROVEN-WIN |
+| install / reinstall / uninstall | ACS-C2-WIN-06 | unchanged npm model | e2e WIN-06 | full regressions | PROVEN-WIN |
+| preservation (Correction 1, WSL2, agent, authority) | ACS-C1-*, ACS-AC-* | unchanged | existing suite; the Correction 1 unit test's **fixtures** were replaced with the real npm shims (assertions unchanged; justification in the file) | Windows and WSL2 regressions and WSL natural-session run | retained |
+
+### 11.6 Results
+
+- Parent `676d67b`: Windows 299/299.
+- Correction:
+  - **Windows:** 299 existing + 6 new unit + 4 new Windows-only e2e = **309**.
+  - **Ubuntu/WSL2:** 299 existing + 6 new unit + 1 new non-Windows e2e = **306**. The same e2e file registers the 4 Windows tests only on Windows, because npm writes PowerShell and cmd shims only there. On other platforms it registers 1 test proving the guard is a no-op: a real global install's `postinstall`, with a staged foreign `treepo.ps1`, exits 0 and changes nothing. Nothing is skipped.
+  - A first WSL2 run (`09a`) showed 306 before that test existed. Node's test runner counts a file that registers no tests as one passing entry. Rather than report that hollow pass, the file now registers the real non-Windows test above.
+- One existing test file was changed: `test/unit/windows-command.test.ts`. Its fixtures, a fragment "shim" and a placeholder `.cmd`, encoded the rejected substring contract; they were replaced by the captured real npm shims, and all assertions are unchanged.
+- Post-commit figures are recorded in the Correction 2 evidence set.
