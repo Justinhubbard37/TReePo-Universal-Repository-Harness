@@ -968,3 +968,16 @@ Unchanged: Router, authorization evaluation, activation layers, the adapter stat
 - **Orientation wording.** With a workflow installed but nothing active, the derived orientation's "Workflow" line still reads "no workflow adapter is active; select one through the Router and activate it before governed work". This is non-authoritative presentation outside this correction's boundary. The exact next action, which the constraints direct agents to follow, is correct.
 - **Multiple installed workflows.** If more than one workflow adapter were installed, the lowest id is used, as the activation-map discovery already did. v1 ships one workflow adapter.
 - **Unchanged from earlier corrections.** The limitations recorded for the first and second corrections still apply: the live-count line in the agent entry, `harness.publish`, and `npm run accept` not rerun.
+
+## ACS-001 — Machine-accessible CLI / agent control surface
+
+| Item | Record |
+|---|---|
+| Authority | Explicit Director decision "LOCKED DIRECTOR DECISION — MACHINE-ACCESSIBLE CLI" (ACS-001 phase prompt), quoted in `ACS-001-Machine-CLI.md` §1 |
+| Starting point | `af7e43f345f685e2b7c13484d233cc749b7951e6`, `fable/implementation`, clean; baseline regression 276/276 on Windows 11/NTFS and on Ubuntu/WSL2 ext4 |
+| Gap (pre-fix) | Unchanged baseline packed + installed into a disposable prefix exposes no `treepo` command on either environment; the installed TypeScript entry cannot run under `node_modules`; the source entry works when supplied explicitly |
+| Implementation | npm `bin` registration of a compiled runtime-only package (`scripts/build.ts` via `prepack`, `tsconfig.build.json`, `files` whitelist); `treepo version` reports the executing module path; generated agent entry leads with the control-surface rules (`src/orient/index.ts`) |
+| Tests | `test/e2e/installed-cli.test.ts` (8), `test/static/package-surface.test.ts` (6), `test/unit/agent-entry-control-surface.test.ts` (3); all 10 top-level results fail against unchanged `af7e43f` sources |
+| Results | 293/293 on Windows 11/NTFS and on Ubuntu/WSL2 ext4 (276 existing + 17 new); no existing test changed |
+| Record | `ACS-001-Machine-CLI.md` (requirements ACS-AC-01..15, traceability, operator documentation, limitations) |
+| Raw evidence | `evidence/acs-001/r1/` (ignored; delivered in the audit package) |

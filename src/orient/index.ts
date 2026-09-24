@@ -26,6 +26,30 @@ export const CONSTRAINTS: readonly string[] = [
   "TReePo never commits, pushes, or performs repository actions on your behalf.",
 ];
 
+/** The canonical machine-accessible control command (ACS-001 Director decision). */
+export const CONTROL_COMMAND = "treepo";
+
+/**
+ * How a fresh agent operates TReePo (ACS-001). Generic for any agent that can run
+ * local commands. These are instructions only: TReePo cannot physically stop a
+ * non-compliant process from writing files; its own transitions stay fail-closed.
+ */
+export const CONTROL_SURFACE: readonly string[] = [
+  `The TReePo control command is \`${CONTROL_COMMAND}\`. It is installed once on this machine or environment, not inside this repository. Run it from inside this repository (start with \`${CONTROL_COMMAND} orient --text\`; \`${CONTROL_COMMAND} help\` lists commands).`,
+  "Never create, edit, delete, or copy files under `.treepo/` by hand, including this file. Only the control command writes TReePo state.",
+  `Every governed transition goes through \`${CONTROL_COMMAND}\` (for example \`${CONTROL_COMMAND} progress\`, \`${CONTROL_COMMAND} checkpoint\`, \`${CONTROL_COMMAND} pause\`, \`${CONTROL_COMMAND} handoff\`).`,
+  `Completing the work named by the exact next action does not advance TReePo state. Publish the successor through \`${CONTROL_COMMAND}\` (for example \`${CONTROL_COMMAND} progress --done <id> --next <text> --requester <you>\`) before starting any later governed action.`,
+  `If \`${CONTROL_COMMAND}\` is not found or cannot run when you need it: STOP governed work and report that the TReePo control surface is unavailable. Do not continue into later governed work, do not look for or run TReePo from a source checkout or any other path, and do not edit \`.treepo/\` instead.`,
+  `Permission to write project files is not TReePo authority. Only \`${CONTROL_COMMAND}\` transitions backed by recorded authorization advance governed work.`,
+];
+
+export interface ControlSurface {
+  readonly command: typeof CONTROL_COMMAND;
+  readonly rules: readonly string[];
+}
+
+const CONTROL: ControlSurface = { command: CONTROL_COMMAND, rules: CONTROL_SURFACE };
+
 export interface OrientationOk {
   readonly mechanical: true;
   readonly ok: true;
@@ -55,6 +79,7 @@ export interface OrientationOk {
     readonly uncommittedTreepoEntries: number;
   };
   readonly constraints: readonly string[];
+  readonly controlSurface: ControlSurface;
 }
 
 export interface OrientationRefusal {
@@ -64,6 +89,7 @@ export interface OrientationRefusal {
   readonly validation: ValidationReport;
   readonly refusal: string;
   readonly constraints: readonly string[];
+  readonly controlSurface: ControlSurface;
 }
 
 export type Orientation = OrientationOk | OrientationRefusal;
@@ -75,7 +101,7 @@ function sameFacts(a: WorkingCopyFacts, b: WorkingCopyFacts): boolean {
 export async function orient(platform: Platform, layout: Layout, registry: Registry): Promise<Orientation> {
   const validation = await validateAuthoritativeState(layout);
   if (!validation.ok) {
-    return { mechanical: true, ok: false, note: MECHANICAL_NOTE, validation, refusal: `authoritative state does not validate (${validation.code}); continuation refused`, constraints: CONSTRAINTS };
+    return { mechanical: true, ok: false, note: MECHANICAL_NOTE, validation, refusal: `authoritative state does not validate (${validation.code}); continuation refused`, constraints: CONSTRAINTS, controlSurface: CONTROL };
   }
   const state = await requireValidState(layout);
   const facts = await observeRepository(platform, layout.root);
@@ -85,7 +111,7 @@ export async function orient(platform: Platform, layout: Layout, registry: Regis
     statuses = adapterStatuses({ registry, installed, facts, state, authz });
   } catch (error) {
     if (!isTreepoError(error)) throw error;
-    return { mechanical: true, ok: false, note: MECHANICAL_NOTE, validation, refusal: `${error.code}: ${error.message}`, constraints: CONSTRAINTS };
+    return { mechanical: true, ok: false, note: MECHANICAL_NOTE, validation, refusal: `${error.code}: ${error.message}`, constraints: CONSTRAINTS, controlSurface: CONTROL };
   }
   const object = state.current.object;
   const activation = activationOf(object);
@@ -122,6 +148,7 @@ export async function orient(platform: Platform, layout: Layout, registry: Regis
       uncommittedTreepoEntries: facts.treepoSurface.entries.length,
     },
     constraints: CONSTRAINTS,
+    controlSurface: CONTROL,
   };
 }
 
@@ -131,6 +158,10 @@ export function renderOrientation(o: Orientation): string {
   lines.push("# TReePo agent entry (DERIVED FILE)");
   lines.push("");
   lines.push("This file is generated from authoritative TReePo state. It is not authority. Regenerate with `treepo orient`; never edit by hand.");
+  lines.push("");
+  lines.push("## TReePo control surface (read first)");
+  lines.push("");
+  for (const rule of o.controlSurface.rules) lines.push(`- ${rule}`);
   lines.push("");
   if (!o.ok) {
     lines.push("## CONTINUATION REFUSED");

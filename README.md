@@ -91,3 +91,16 @@ If implementation requires changing a locked product, architecture, authority, s
 Implementation is not complete merely because it runs.
 
 Completion is governed by [`Acceptance-Proof-Contract.md`](docs/baseline/Acceptance-Proof-Contract.md), including adversarial, recovery, fresh-agent continuation, semantic-isolation, adapter, and dual-environment proof requirements.
+
+## Installing the `treepo` command
+
+TReePo is installed once per machine or environment and exposes the `treepo` command. Each governed repository carries only its `.treepo/` state, never a copy of TReePo. This is the same split as `git` and `.git`.
+
+- Prerequisites: Node.js 24.19.0 (with its npm) and Git, on Windows 11 (local NTFS) or Ubuntu under WSL2 (repository on the Linux filesystem).
+- Build the local artifact from this checkout: `npm ci`, then `npm pack` (writes `treepo-<version>.tgz`; nothing is published).
+- Install it without elevation. On Windows: `npm install -g .\treepo-<version>.tgz`. On Ubuntu/WSL2: `npm install -g --prefix "$HOME/.local" ./treepo-<version>.tgz`.
+- Verify from any directory: `treepo version`.
+- Agents run `treepo` from inside a governed repository (start with `treepo orient --text`). If `treepo` is unavailable they stop governed work and report it.
+- `npm uninstall -g treepo` removes the machine command only. `treepo uninstall` removes TReePo-owned material from one repository.
+
+Details: [`docs/implementation/ACS-001-Machine-CLI.md`](docs/implementation/ACS-001-Machine-CLI.md).

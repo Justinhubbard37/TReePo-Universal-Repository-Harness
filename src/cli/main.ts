@@ -3,6 +3,7 @@
 // 2 usage error.
 
 import * as nodePath from "node:path";
+import { fileURLToPath } from "node:url";
 import { activateAdapter, CONTINUITY_ID, grantAuthorization, installAdapter, revokeAuthorization, runWorkflowTransition } from "../adapters/index.ts";
 import { init, preflight, uninstall } from "../bootstrap/index.ts";
 import { loadAnchoredAuthz } from "../core/authz/index.ts";
@@ -13,6 +14,9 @@ import { renderOrientation } from "../orient/index.ts";
 import { selectPlatform } from "../platform/index.ts";
 import { adapters, current, exportProject, hydrateProject, importProject, observe, openProject, orientProject, recover, refreshAgentEntry, routeIntent, routine, semantic, status } from "../harness/index.ts";
 import { assertPinnedRuntime, PINNED_NODE_VERSION } from "./runtime-gate.ts";
+
+/** Version of the installable CLI; must equal package.json "version" (static package-surface test). */
+export const TREEPO_VERSION = "0.1.0-dev";
 
 export interface CliIo {
   readonly out: (text: string) => void;
@@ -146,7 +150,9 @@ export async function run(argv: readonly string[], io: CliIo): Promise<number> {
         return 0;
       case "version":
       case "--version":
-        json({ treepo: "0.1.0-dev", node: PINNED_NODE_VERSION });
+        // `cli` is the module actually executing, so an operator or agent can see which installation
+        // the `treepo` command resolved to (ACS-001); it is diagnostic only and confers nothing.
+        json({ treepo: TREEPO_VERSION, node: PINNED_NODE_VERSION, cli: fileURLToPath(import.meta.url) });
         return 0;
       case "preflight": {
         const p = await preflight(selectPlatform(), io.cwd);
