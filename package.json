@@ -23,7 +23,8 @@
     "check": "npm run typecheck && npm test",
     "accept": "node test/acceptance/run.ts",
     "build": "node scripts/build.ts",
-    "prepack": "node scripts/build.ts"
+    "prepack": "node scripts/build.ts",
+    "postinstall": "node -e \"process.env.npm_config_global==='true'&&import('./dist/src/install/windows-command.js').then((m)=>m.postinstall())\""
   },
   "devDependencies": {
     "@types/node": "24.13.5",

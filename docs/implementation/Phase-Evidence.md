@@ -981,3 +981,16 @@ Unchanged: Router, authorization evaluation, activation layers, the adapter stat
 | Results | 293/293 on Windows 11/NTFS and on Ubuntu/WSL2 ext4 (276 existing + 17 new); no existing test changed |
 | Record | `ACS-001-Machine-CLI.md` (requirements ACS-AC-01..15, traceability, operator documentation, limitations) |
 | Raw evidence | `evidence/acs-001/r1/` (ignored; delivered in the audit package) |
+
+## ACS-001 Correction 1 — machine accessibility
+
+| Item | Record |
+|---|---|
+| Authority | Phase Zero disposition *ACS-001 CORRECTION REQUIRED* on `417a18cc1b32fb8b52b6061b83c7d8fb0c08aa38`; architecture accepted; two findings only |
+| Starting point | `417a18c` (parent `af7e43f`), clean; 293/293 on Windows 11/NTFS and on Ubuntu/WSL2 ext4 |
+| Findings | F1: npm writes a `treepo.ps1` shim that PowerShell prefers and refuses under Restricted/AllSigned. F2: the WSL procedure lacked the new-login-session step, and the harness had injected PATH itself |
+| Implementation | Global-install `postinstall` hook removing npm's own `treepo.ps1` on Windows (`src/install/windows-command.ts`); README / ACS-001 record procedure corrections |
+| Tests | `test/e2e/installed-cli-accessibility.test.ts` (4, same names on both platforms), `test/unit/windows-command.test.ts` (2) |
+| Results | 299/299 on both environments; no existing test modified |
+| Record | `ACS-001-Machine-CLI.md` §10 |
+| Raw evidence | `evidence/acs-001/correction-1/r1/` (ignored; delivered in the correction audit package) |

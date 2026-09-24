@@ -57,9 +57,9 @@ Conclusion recorded by the tool: *transition engine exists; generic command expo
 
 The mechanism is a standard npm package executable, installed globally from a locally packed tarball:
 
-- `package.json` `"bin": { "treepo": "dist/bin/treepo.js" }`. npm creates the platform command shims: `treepo`, `treepo.cmd` and `treepo.ps1` on Windows, and a `bin/treepo` symlink to the entry on Linux.
+- `package.json` `"bin": { "treepo": "dist/bin/treepo.js" }`. npm creates the platform command shims: `treepo` and `treepo.cmd` on Windows, and a `bin/treepo` symlink to the entry on Linux. npm also writes `treepo.ps1` on Windows, which the package's install step removes (Correction 1, §10).
 - `scripts/build.ts` (run by `prepack`) compiles `src/**` and `bin/**` to plain JavaScript under `dist/`, using `tsconfig.build.json` (`rewriteRelativeImportExtensions`). This is required because Node will not strip types under `node_modules`. `erasableSyntaxOnly` already guarantees the compiled program is the same erasable-syntax program the development entry runs, so no behavior is added. The build checks for the node shebang and sets the entry mode to 755.
-- `"files": ["dist/bin/", "dist/src/"]` makes the artifact runtime-only: `package.json`, `README.md` and 62 compiled modules (64 files). It contains no TypeScript, tests, docs, evidence, governance, handoff or `.claude` material.
+- `"files": ["dist/bin/", "dist/src/"]` makes the artifact runtime-only: `package.json`, `README.md` and 62 compiled modules (64 files; 65 after Correction 1 adds `dist/src/install/windows-command.js`). It contains no TypeScript, tests, docs, evidence, governance, handoff or `.claude` material.
 - `"private": true` is kept deliberately so the package cannot be published to a registry by accident. Publication is out of ACS-001 scope and would be a separate release decision.
 - Zero runtime dependencies (unchanged). The runtime prerequisite is Node.js 24.19.0 (`engines`, and the existing fail-closed runtime gate).
 - `dist/` and `*.tgz` are git-ignored build outputs.
@@ -106,11 +106,11 @@ npm pack            # runs the prepack build; writes treepo-0.1.0-dev.tgz
 **Install** the artifact. No public registry, network or elevation is needed:
 
 - Windows (user-scoped default prefix `%APPDATA%\npm`, on the user PATH by the Node.js installer): `npm install -g .\treepo-0.1.0-dev.tgz`
-- Ubuntu/WSL2: `npm install -g --prefix "$HOME/.local" ./treepo-0.1.0-dev.tgz`. `~/.local/bin` is on Ubuntu's default login PATH once it exists. Do not use `sudo`.
+- Ubuntu/WSL2 (corrected by Correction 1, §10): check that `command -v node npm` resolves the Linux Node.js 24.19.0. Run `npm install -g --prefix "$HOME/.local" ./treepo-0.1.0-dev.tgz`, then start a new login session (a new Ubuntu terminal, or `exec bash -l`). Ubuntu's stock `~/.profile` adds `~/.local/bin` to PATH only if it existed when the session started, and the install creates it. Do not use `sudo`.
 
 Install from the **tarball**. Installing from a source directory (`npm install -g <dir>` or `npm link`) creates a link to that checkout and is not the supported mechanism.
 
-**Verify:** `treepo version` from any directory. The `cli` field shows the installed package location (`where treepo` on Windows, `command -v treepo` on Linux, shows the shim). In PowerShell with script execution disabled, `treepo.cmd` is equivalent (the standard npm-shim behavior). Evidence was recorded under policy `RemoteSigned`.
+**Verify:** in a new shell, `treepo version` from any directory. The `cli` field shows the installed package location. `Get-Command treepo` / `where treepo` on Windows, or `command -v treepo` on Linux, show the shim. In PowerShell, bare `treepo` resolves under the Restricted, AllSigned and RemoteSigned execution policies (Correction 1, §10).
 
 **Update / reinstall:** `npm install -g` the new tarball. Governed repositories are not touched (ACS-AC-12 evidence).
 
@@ -150,6 +150,71 @@ The new tests were run against **unchanged** `af7e43f` sources (`05-new-tests-ag
 
 - TReePo cannot physically prevent a deliberately non-compliant external process with ordinary filesystem access from editing project files or `.treepo/`. ACS-001 supplies the supported control surface and explicit fail-closed instructions. The transition engine's own integrity checks (unchanged) still detect tampering with authoritative state. ACS-AC-10 shows what a compliant agent does; it is not enforcement.
 - No public distribution channel exists. The package is `private`, and nothing was published, pushed or released.
-- Proven only on Windows 11/NTFS and Ubuntu under WSL2 on native ext4, both with Node.js 24.19.0 and its bundled npm 11.17.0. Other shells, package managers, Node versions or operating systems are not claimed. PowerShell was exercised under `RemoteSigned`. Under a policy that blocks scripts, `treepo.cmd` applies.
+- Proven only on Windows 11/NTFS and Ubuntu under WSL2 on native ext4, both with Node.js 24.19.0 and its bundled npm 11.17.0. Other shells, package managers, Node versions or operating systems are not claimed. Windows PowerShell 5.1 was exercised under `Restricted`, `AllSigned` and `RemoteSigned` (Correction 1, §10).
 - The artifact is byte-reproducible within an environment. Across the two environments the file contents are identical, but the tarball bytes differ only in the entry's recorded Unix mode.
 - No OpenCode, MCP, IDE, vendor-specific or daemon integration was added.
+
+## 10. Correction 1 — machine accessibility (Phase Zero re-audit of `417a18c`)
+
+**Authority:** Phase Zero disposition *ACS-001 CORRECTION REQUIRED* on candidate `417a18cc1b32fb8b52b6061b83c7d8fb0c08aa38` (parent `af7e43f`). Phase Zero accepted the ACS-001 architecture and implementation approach. The correction is limited to the two findings below and reopens nothing else. The original evidence set `evidence/acs-001/r1/` and the original audit package are preserved unchanged.
+
+### 10.1 Findings and root causes
+
+| Finding | Root cause | Kind |
+|---|---|---|
+| **F1 (Windows):** in Windows PowerShell, bare `treepo` failed whenever the execution policy refused npm's `treepo.ps1` shim; the documentation pointed to the suffixed shim | npm (`cmd-shim`, npm 11.17.0) always writes `treepo`, `treepo.cmd` **and** `treepo.ps1`. PowerShell resolves a bare name to the `.ps1` ahead of the `.cmd` in the same directory, and refuses it under `Restricted` (the Windows client default when no policy is configured) and `AllSigned` | implementation defect + documentation |
+| **F2 (WSL2):** the acceptance harness put `<prefix>/bin` on child PATH itself, so it never proved that the documented install makes `treepo` reachable | Ubuntu's stock `~/.profile` adds `~/.local/bin` only if it **exists when the login session starts**. The install creates it, so `treepo` is reachable only in a new login session. The candidate documentation did not state that step. The runtime was correct | documentation / proof gap (no runtime defect) |
+
+### 10.2 Requirements
+
+| ID | Requirement |
+|---|---|
+| ACS-C1-WIN-01 | Against `417a18c`: install through the Windows package mechanism; under the refusing PowerShell policies, bare `treepo` fails, while the suffixed shim works (recorded as a contrast only) |
+| ACS-C1-WIN-02 | Against the correction: after the supported install, bare `treepo version` and a repository-bound `treepo` command succeed in normal Windows PowerShell under the refusing policies, with no suffixed command |
+| ACS-C1-WIN-03 | An agent-like PowerShell process discovers the command from `AGENT-ENTRY.md`, resolves bare `treepo`, orients, publishes a governed transition, observes the successor, and stops without mutation when `treepo` is unavailable |
+| ACS-C1-WSL-01 | Against `417a18c`: following the candidate's documented procedure, a subsequent process without harness PATH injection does not resolve `treepo` |
+| ACS-C1-WSL-02 | Against the correction, from a fresh Ubuntu user state: exactly the documented procedure plus its documented session refresh gives `command -v treepo` and `treepo version` success, with the resolved path recorded; the harness never adds the prefix to PATH |
+| ACS-C1-WSL-03 | From that naturally established session: an external agent in an independent governed repository, with no checkout path, resolves bare `treepo`, orients, transitions and observes the successor; fail-closed when not installed |
+| ACS-C1-DOC | Documentation states the bare-`treepo` contract only (no suffixed fallback) and the exact WSL procedure including the refresh step |
+
+### 10.3 Implementation
+
+- **F1:** the package declares an npm `postinstall` hook that, **for global installs only**, calls `dist/src/install/windows-command.js` (source `src/install/windows-command.ts`).
+  - On Windows it removes npm's `treepo.ps1` shim for this package's own entry, and only if that file is exactly npm's shim for the installed `dist/bin/treepo.js` (target derived from the real install layout) and `treepo.cmd` is present. A foreign `.ps1` is never touched.
+  - PowerShell then resolves bare `treepo` to npm's `.cmd` shim as an Application, and execution policy does not govern `.cmd` files. cmd resolves the same shim; Git Bash resolves npm's extensionless sh shim.
+  - Execution policy is never read or changed, nothing needs elevation, no profile is edited, and the agent entry stays shell-neutral.
+  - The hook command is guarded by `npm_config_global`, so `npm ci` in a development checkout is unaffected. On Linux the module does nothing.
+  - Removal stays npm's own `npm uninstall -g treepo`, which removes the remaining shims (verified).
+  - The accepted `files` boundary is unchanged: the module ships inside `dist/src/`, bringing the artifact to 65 files.
+- **F2:** no code change. The documented WSL procedure now states:
+  - the prerequisite that `command -v node npm` resolves the Linux Node.js 24.19.0 (the WSL PATH also carries `/mnt/c/Program Files/nodejs`);
+  - the install command;
+  - the required **new login session** (a new Ubuntu terminal, or `exec bash -l`).
+- **Why not something else:** npm offers no option to suppress the `.ps1` shim. Changing the user's execution policy, a profile function or alias, a repository-local launcher, or directing agents to a suffixed command are all excluded. A package lifecycle hook is the only mechanism inside the accepted npm executable model.
+- **Constraint (stated, not hidden):** the hook requires install scripts to run. On the supported npm 11.17.0 they run by default, with an informational `allow-scripts` notice. Only explicit disabling (`--ignore-scripts`) or a future npm that blocks unreviewed scripts would leave `treepo.ps1` in place. In that case PowerShell under `Restricted`/`AllSigned` reports that `treepo` cannot run, and the agent entry's fail-closed rule applies.
+- **Harness defect found and fixed during the correction (evidence tool only, not shipped):** the first two WSL runs are kept (`07a`, `07b`). Run 07a exposed that the new module embedded a literal package path forbidden by the accepted product-path scan. The module was changed; the accepted test was not. Run 07b exposed that the evidence script started login shells from the (moved-away) checkout directory, which surfaced as `OLDPWD`. Login shells now start in the fresh `$HOME`, as a new terminal does.
+
+### 10.4 Traceability
+
+| Finding | Requirement | Implementation | Regression | Evidence (`evidence/acs-001/correction-1/r1/`) | Status |
+|---|---|---|---|---|---|
+| F1 | ACS-C1-WIN-01 | — (candidate) | `test/e2e/installed-cli-accessibility.test.ts` run against unchanged `417a18c` sources: 4/4 fail on Windows; the key failure is PowerShell's `treepo.ps1 cannot be loaded because running scripts is disabled` | 04, 05 (bare `treepo` FAILS under Restricted and AllSigned, works under RemoteSigned; the suffixed shim works under all three, contrast only) | DEMONSTRATED |
+| F1 | ACS-C1-WIN-02 | `src/install/windows-command.ts`; `package.json` `postinstall` | e2e ACS-C1-01, ACS-C1-WIN-02; `test/unit/windows-command.test.ts` | 06 and post-commit proof (bare `treepo` WORKS under Restricted, AllSigned, RemoteSigned; shims `treepo` and its `.cmd`) | PROVEN-WIN |
+| F1 | ACS-C1-WIN-03 | — | e2e ACS-C1-WIN-03 (PowerShell agent under Restricted; STOP with PATH lacking the command) | full regressions 08 and post-commit | PROVEN-WIN |
+| F2 | ACS-C1-WSL-01 | — (candidate) | — | 07 §6: fresh `/etc/skel` user, candidate procedure, subsequent process exit 127; a new login resolves | DEMONSTRATED |
+| F2 | ACS-C1-WSL-02 | README / §6 procedure | e2e ACS-C1-01 and ACS-C1-WSL-02 (Linux: fresh `/etc/skel` user, real `bash -l` sessions from `/etc/environment`) | 07 §7 (WSL init PATH, checkout moved away): `command -v treepo` = `<fresh home>/.local/bin/treepo`, a symlink to `…/.local/lib/node_modules/treepo/dist/bin/treepo.js` | PROVEN-WSL |
+| F2 | ACS-C1-WSL-03 | — | e2e ACS-C1-WSL-03 | 07 §§8–9: agent CONTINUED (seq 4→5), argv/env free of checkout paths; STOP exit 3 with `.treepo` unchanged | PROVEN-WSL |
+| F1, F2 | ACS-C1-DOC | README; this document §§4.1, 6, 9, 10 | e2e ACS-C1-DOC (fails on the candidate's documentation) | 04, 07 §2 | PROVEN-WIN, PROVEN-WSL |
+| preservation | ACS-AC-01..13 | unchanged | existing 293 tests unchanged | 07 §§9–11 (authority/stale negatives, separation, reinstall/removal through bare `treepo` in natural sessions) | retained |
+
+### 10.5 Results
+
+- Candidate `417a18c`: Windows 293/293, WSL2 293/293.
+- Correction: Windows 299/299 and WSL2 299/299, with 0 fail, skipped, cancelled or todo. That is the 293 existing tests (none modified) plus 6 new: 4 e2e with the same names on both platforms, and 2 unit.
+- Post-commit binding figures are recorded in the correction evidence set.
+
+### 10.6 Remaining limits
+
+- Windows PowerShell 5.1 is the PowerShell proven. PowerShell 7 (`pwsh`) is not installed on the test host and is not claimed.
+- The Windows proof uses a disposable prefix standing in for `%APPDATA%\npm`. That the real user PATH contains `%APPDATA%\npm` was checked read-only.
+- The WSL proof uses a fresh `/etc/skel` home and Ubuntu's stock `~/.profile`. Users with a custom `~/.bash_profile` or `~/.bash_login`, which make bash skip `~/.profile`, must add `~/.local/bin` to PATH themselves.

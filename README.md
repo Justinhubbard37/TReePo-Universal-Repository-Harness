@@ -98,8 +98,10 @@ TReePo is installed once per machine or environment and exposes the `treepo` com
 
 - Prerequisites: Node.js 24.19.0 (with its npm) and Git, on Windows 11 (local NTFS) or Ubuntu under WSL2 (repository on the Linux filesystem).
 - Build the local artifact from this checkout: `npm ci`, then `npm pack` (writes `treepo-<version>.tgz`; nothing is published).
-- Install it without elevation. On Windows: `npm install -g .\treepo-<version>.tgz`. On Ubuntu/WSL2: `npm install -g --prefix "$HOME/.local" ./treepo-<version>.tgz`.
-- Verify from any directory: `treepo version`.
+- Install it without elevation, with npm install scripts enabled (the default).
+  - Windows 11: `npm install -g .\treepo-<version>.tgz`. The package goes to the per-user `%APPDATA%\npm` directory, which the Node.js installer puts on the user PATH. The package's install step removes npm's PowerShell script shim, so PowerShell resolves bare `treepo` under any execution policy, including the Windows default `Restricted`. cmd and Git Bash resolve it as well. npm 11 prints an `allow-scripts` notice for this step; that is expected.
+  - Ubuntu/WSL2: make sure `command -v node npm` shows the Linux Node.js 24.19.0, not `/mnt/c/...`. Then run `npm install -g --prefix "$HOME/.local" ./treepo-<version>.tgz` and start a new login session: open a new Ubuntu terminal, or run `exec bash -l`. Ubuntu's stock `~/.profile` adds `~/.local/bin` to PATH only if that directory existed when the session started, and the install creates it. Agents started from the new session inherit PATH. No `sudo` and no profile edits are needed.
+- Verify from any directory in a new shell: `command -v treepo` (Linux) or `Get-Command treepo` (PowerShell), then `treepo version`.
 - Agents run `treepo` from inside a governed repository (start with `treepo orient --text`). If `treepo` is unavailable they stop governed work and report it.
 - `npm uninstall -g treepo` removes the machine command only. `treepo uninstall` removes TReePo-owned material from one repository.
 
