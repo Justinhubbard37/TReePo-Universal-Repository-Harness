@@ -72,12 +72,20 @@ commands:
   authorize revoke --grant <grantId> --grantor <label> --statement <text> --requester <label>
   orient [--text] [--write-entry] fresh-agent orientation from durable state only
   hydrate [--ttl-ms <n>]          full assurance, then a session token for the routine fast lane
-  begin --work <label> --next <text> --requester <label>
+  objective --text <the human's objective> [--next <text>] --requester <label>
+  plan --workstream <label> [--purpose <text>] [--next <text>] --requester <label>
+  begin (--work <label> [--purpose <text>] | --workstream <planned id>) --next <text> --requester <label>
   progress --done <id>[=<note>] [--done ...] --next <text> --requester <label> [--session <token>]
   checkpoint --label <text> [--next <text>] --requester <label> [--session <token>]
   pause --next <text> --requester <label>
   resume [--next <text>] --requester <label>
   handoff --to <label> [--next <text>] --requester <label>
+  complete --outcome <what was achieved> [--next <text>] --requester <label>
+  raise --kind question|proposal --title <text> [--why <text>] [--option <text> ...] [--recommend <text>]
+        [--next <text>] --requester <label>
+  decide (--item <id> | --question <text>) [--choice <text>] [--verdict accept|decline] --by <human label>
+         [--rationale <text>] [--revises <decision id>] [--next <text>] --requester <label>
+                                  record a decision the human made (proposals take --verdict)
   semantic status|index|rebuild    local SQLite semantic memory (subordinate; never authoritative)
   semantic query --q <text> [--limit <n>]
   export --out <file>             write the complete authoritative state as one verified bundle
@@ -89,7 +97,7 @@ commands:
   version
 `;
 
-const WORKFLOW_ACTIONS = ["begin", "progress", "checkpoint", "pause", "resume", "handoff"] as const;
+const WORKFLOW_ACTIONS = ["begin", "progress", "checkpoint", "pause", "resume", "handoff", "complete", "objective", "plan", "raise", "decide"] as const;
 
 function allValues(argv: readonly string[], name: string): string[] {
   const out: string[] = [];
@@ -107,16 +115,41 @@ function workflowInput(action: string, argv: readonly string[], flags: Map<strin
   const prereq = text(flags, "prereq");
   if (prereq !== undefined) input["prerequisites"] = prereq.split(",").filter((p) => p.length > 0);
   switch (action) {
-    case "begin":
-      input["work"] = required(flags, "work");
+    case "begin": {
+      const workstream = text(flags, "workstream");
+      if (workstream !== undefined) input["workstream"] = workstream;
+      else input["work"] = required(flags, "work");
+      optional(input, flags, "purpose", "purpose");
       break;
+    }
     case "progress":
       input["completed"] = allValues(argv, "done").map((d) => {
         const eq = d.indexOf("=");
         const id = eq === -1 ? d : d.slice(0, eq);
         const note = eq === -1 ? d : d.slice(eq + 1);
-        return { id, digest: sha256Hex(note) };
+        return eq === -1 ? { id, digest: sha256Hex(note) } : { id, digest: sha256Hex(note), note };
       });
+      break;
+    case "complete":
+      input["outcome"] = required(flags, "outcome");
+      break;
+    case "objective":
+      input["objective"] = required(flags, "text");
+      break;
+    case "plan":
+      input["workstream"] = required(flags, "workstream");
+      optional(input, flags, "purpose", "purpose");
+      break;
+    case "raise":
+      input["kind"] = required(flags, "kind");
+      input["title"] = required(flags, "title");
+      optional(input, flags, "why", "why");
+      optional(input, flags, "recommend", "recommendation");
+      input["options"] = allValues(argv, "option");
+      break;
+    case "decide":
+      input["decidedBy"] = required(flags, "by");
+      for (const [flag, key] of [["item", "item"], ["question", "question"], ["choice", "choice"], ["verdict", "verdict"], ["rationale", "rationale"], ["revises", "revises"]] as const) optional(input, flags, flag, key);
       break;
     case "checkpoint":
       input["label"] = required(flags, "label");
@@ -128,6 +161,11 @@ function workflowInput(action: string, argv: readonly string[], flags: Map<strin
       break;
   }
   return input;
+}
+
+function optional(input: Record<string, CanonicalValue>, flags: Map<string, string | true>, flag: string, key: string): void {
+  const v = text(flags, flag);
+  if (v !== undefined) input[key] = v;
 }
 
 function required(flags: Map<string, string | true>, name: string): string {
@@ -278,7 +316,12 @@ export async function run(argv: readonly string[], io: CliIo): Promise<number> {
       case "checkpoint":
       case "pause":
       case "resume":
-      case "handoff": {
+      case "handoff":
+      case "complete":
+      case "objective":
+      case "plan":
+      case "raise":
+      case "decide": {
         const project = await openProject(io.cwd);
         const action = command as (typeof WORKFLOW_ACTIONS)[number];
         const session = text(flags, "session");

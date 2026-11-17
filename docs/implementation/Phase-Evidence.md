@@ -1006,3 +1006,15 @@ Unchanged: Router, authorization evaluation, activation layers, the adapter stat
 | Tests | `test/unit/windows-command-ownership.test.ts` (6, both platforms), `test/e2e/installed-cli-shim-ownership.test.ts` (4, Windows); fixtures of `test/unit/windows-command.test.ts` replaced by the real npm shims |
 | Record | `ACS-001-Machine-CLI.md` §11 |
 | Raw evidence | `evidence/acs-001/correction-2/r1/` (ignored; delivered in the Correction 2 audit package) |
+
+## PXS-001 project-wide continuity and guidance (candidate; not accepted)
+
+Base `9a4b0e4`, uncommitted working-tree delta: `src/adapters/api.ts`, `src/adapters/workflow/continuity/index.ts`, `src/cli/main.ts`, `src/orient/index.ts`, `test/integration/project-continuity.test.ts`, `README.md`, `docs/implementation/PXS-001-Project-Continuity.md`, `docs/implementation/Traceability-Ledger.md` §13. Record: `PXS-001-Project-Continuity.md`.
+
+- Baseline before the change, Windows 11/NTFS, Node 24.19.0: `npm run check` gave 309/309.
+- Final delta, Windows 11/NTFS: `npm run check` (typecheck and all tests) gave 319/319.
+- Final delta, Ubuntu 26.04 under WSL2, ext4, Node 24.19.0, fresh clone of `9a4b0e4` with the delta extracted: `npm run check` gave 316/316 when run alone. The Windows and WSL counts differ because some tests run only on Windows.
+- Flaky runs, recorded as they happened:
+  - During one Windows run, the two e2e suites raced in `npm pack` (EOF reading a half-built `dist/`). The failure did not recur in the next two Windows runs.
+  - During one WSL run made at the same time as a full Windows run, `concurrency.test.ts` D.4 (fixed 400 ms child-readiness wait) failed once. It passed in the full WSL gate run alone and in 5 of 5 repeated runs. Neither test touches code changed by PXS-001, and `src/core/**` is unchanged.
+- Run logs were kept outside the repository and are not committed (AGENTS.md §14).

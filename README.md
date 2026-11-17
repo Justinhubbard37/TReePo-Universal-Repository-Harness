@@ -92,6 +92,17 @@ Implementation is not complete merely because it runs.
 
 Completion is governed by [`Acceptance-Proof-Contract.md`](docs/baseline/Acceptance-Proof-Contract.md), including adversarial, recovery, fresh-agent continuation, semantic-isolation, adapter, and dual-environment proof requirements.
 
+## Project-wide direction and guidance
+
+The one continuity workflow carries the whole project, not just a single task. Everything below is recorded in authoritative state, travels with the repository, and is shown to every fresh agent by `treepo orient --text` (and the derived `.treepo/AGENT-ENTRY.md`):
+
+- **Objective**: what the human wants to build, in their own words (`treepo objective --text ...`).
+- **Workstreams**: planned remaining work (`treepo plan --workstream ...`), the active workstream (`treepo begin --workstream <id>` or `--work <label>`), its recorded steps (`treepo progress --done <id>=<note>`), and completed workstreams with their outcome (`treepo complete --outcome ...`). After a workstream completes, the exact next action becomes the project-level choice of what comes next.
+- **Questions and proposals** raised for the human (`treepo raise --kind question|proposal ...`). A proposal is not approved scope. An AI recommendation is shown as a recommendation, never as a decision.
+- **Decisions** the human made (`treepo decide ... --by <human>`). They guide routine work until the human revises them (`--revises <decision id>`). Accepting a proposal makes it planned work.
+
+Orientation also gives agents vendor-neutral guidance for working with the human: plain language, decision briefs for consequential choices, raising important questions early, two levels of direction (project and next step), and verifying work. Every one of these capabilities is consequential, so a human must authorize it (`treepo authorize grant`) before an agent can use it. TReePo records what the human decided. It cannot verify who typed a command. Details: [`docs/implementation/PXS-001-Project-Continuity.md`](docs/implementation/PXS-001-Project-Continuity.md).
+
 ## Installing the `treepo` command
 
 TReePo is installed once per machine or environment and exposes the `treepo` command. Each governed repository carries only its `.treepo/` state, never a copy of TReePo. This is the same split as `git` and `.git`.

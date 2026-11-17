@@ -14,7 +14,7 @@ import type { CanonicalValue } from "../core/canon.ts";
 import type { NextAction, Position, TrackedItem, WorkingCopyFacts } from "../core/state/schema.ts";
 import { requireValidState, validateAuthoritativeState, MECHANICAL_NOTE, type ValidationReport } from "../core/state/validate.ts";
 import type { Platform } from "../platform/index.ts";
-import { activationOf, type AdapterStatus } from "../adapters/api.ts";
+import { activationOf, isWorkflowAdapter, type AdapterStatus, type ProjectView } from "../adapters/api.ts";
 import { adapterStatuses, readInstalledRecords, type Registry } from "../adapters/registry.ts";
 import { observeRepository } from "../adapters/repo/git/index.ts";
 
@@ -66,6 +66,8 @@ export interface OrientationOk {
   readonly completed: readonly TrackedItem[];
   readonly accepted: readonly TrackedItem[];
   readonly workflow: { readonly adapterId: string; readonly capabilities: readonly string[]; readonly state: CanonicalValue } | null;
+  /** Readable project view and collaboration guidance derived by the active workflow adapter from its own recorded state; not authority. */
+  readonly project: ProjectView | null;
   readonly adapters: readonly AdapterStatus[];
   /** Consequential (adapterId, capability) pairs an eligible anchored grant currently covers for active adapters. */
   readonly authorizedNow: readonly { readonly adapterId: string; readonly capability: string }[];
@@ -120,6 +122,8 @@ export async function orient(platform: Platform, layout: Layout, registry: Regis
   );
   const workflowId = Object.keys(activation).find((id) => registry.find(id)?.manifest.category === "workflow");
   const workflow = workflowId === undefined ? null : { adapterId: workflowId, capabilities: activation[workflowId]!.capabilities, state: (object.adapter[workflowId] ?? null) as CanonicalValue };
+  const workflowImpl = workflowId === undefined ? undefined : registry.find(workflowId);
+  const project = workflow !== null && workflowImpl !== undefined && isWorkflowAdapter(workflowImpl) && workflowImpl.describeProject !== undefined ? workflowImpl.describeProject(workflow.state) : null;
   return {
     mechanical: true,
     ok: true,
@@ -136,6 +140,7 @@ export async function orient(platform: Platform, layout: Layout, registry: Regis
     completed: object.core.completed,
     accepted: object.core.accepted,
     workflow,
+    project,
     adapters: statuses,
     authorizedNow,
     repository: {
@@ -170,6 +175,20 @@ export function renderOrientation(o: Orientation): string {
     lines.push(`- ${o.refusal}`);
     lines.push("");
   } else {
+    if (o.project !== null) {
+      lines.push("## Project");
+      lines.push("");
+      for (const section of o.project.sections) {
+        lines.push(`### ${section.title}`);
+        lines.push("");
+        for (const l of section.lines) lines.push(`- ${l}`);
+        lines.push("");
+      }
+      lines.push("## Working with the human");
+      lines.push("");
+      for (const g of o.project.guidance) lines.push(`- ${g}`);
+      lines.push("");
+    }
     lines.push("## Position");
     lines.push("");
     lines.push(`- authoritative state: \`${o.stateId}\` (seq ${o.seq}, lineage length ${o.chainLength}, root \`${o.rootId}\`)`);
@@ -196,7 +215,7 @@ export function renderOrientation(o: Orientation): string {
     lines.push("## Workflow");
     lines.push("");
     if (o.workflow === null) lines.push("- no workflow adapter is active; select one through the Router and activate it before governed work");
-    else lines.push(`- ${o.workflow.adapterId} active for: ${o.workflow.capabilities.join(", ")}; state: ${JSON.stringify(o.workflow.state)}`);
+    else lines.push(`- ${o.workflow.adapterId} active for: ${o.workflow.capabilities.join(", ")}${o.project === null ? `; state: ${JSON.stringify(o.workflow.state)}` : "; project view above"}`);
     lines.push("");
     lines.push("## Authority you have right now");
     lines.push("");

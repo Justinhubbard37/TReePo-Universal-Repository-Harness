@@ -96,6 +96,22 @@ export interface WorkflowAdapter extends AdapterImplementation {
    * may not invent a work objective. The framework decides when this applies and supplies both facts.
    */
   activatedNextAction?(activeCapabilities: readonly string[], authorizedCapabilities: readonly string[]): { readonly description: string; readonly prerequisites: readonly string[] };
+  /**
+   * Pure, optional: a readable project view derived only from this adapter's own namespace in the
+   * current state (null when it has recorded nothing), and the collaboration guidance the workflow
+   * gives agents. Both are derived text for orientation; neither is authority.
+   */
+  describeProject?(adapterState: CanonicalValue | null): ProjectView;
+}
+
+export interface ProjectViewSection {
+  readonly title: string;
+  readonly lines: readonly string[];
+}
+
+export interface ProjectView {
+  readonly sections: readonly ProjectViewSection[];
+  readonly guidance: readonly string[];
 }
 
 /** Genesis position and next action recorded by init: no workflow adapter is active yet. */
