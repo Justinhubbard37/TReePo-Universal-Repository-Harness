@@ -16,7 +16,15 @@ import type { CanonicalValue } from "../canon.ts";
 import { ContinuityError } from "../errors.ts";
 import { isSha256Hex } from "../hash.ts";
 
-export const STATE_SCHEMA_VERSION = 1;
+/**
+ * State schema epochs. The object shape is identical in every epoch; the number states which implementations may
+ * write the state. Epoch 1 is the original format. Epoch 2 marks state whose adapter namespaces may hold records
+ * that epoch-1 implementations do not preserve when they rewrite a namespace: an epoch-1 implementation rejects
+ * the object as malformed and therefore can neither continue from it nor silently discard part of it. A lineage
+ * never returns to a lower epoch.
+ */
+export const STATE_SCHEMA_VERSION = 2;
+export const SUPPORTED_STATE_SCHEMA_VERSIONS: readonly number[] = [1, 2];
 export const STATE_KIND = "treepo.state";
 
 export interface WorkingCopyFacts {
@@ -73,7 +81,7 @@ export interface CoreContinuation {
 }
 
 export interface StateObject {
-  readonly schemaVersion: typeof STATE_SCHEMA_VERSION;
+  readonly schemaVersion: number;
   readonly kind: typeof STATE_KIND;
   readonly seq: number;
   readonly predecessorId: string | null;
@@ -184,7 +192,8 @@ export function assertNextAction(v: unknown, where: string, path = "core.nextAct
  */
 export function assertStateObjectShape(value: unknown, where: string): StateObject {
   const r = obj(value, where, "$", STATE_KEYS);
-  if (r["schemaVersion"] !== STATE_SCHEMA_VERSION) malformed(where, "schemaVersion", `expected ${STATE_SCHEMA_VERSION}`);
+  const schemaVersion = r["schemaVersion"];
+  if (typeof schemaVersion !== "number" || !SUPPORTED_STATE_SCHEMA_VERSIONS.includes(schemaVersion)) malformed(where, "schemaVersion", `expected one of ${SUPPORTED_STATE_SCHEMA_VERSIONS.join(", ")}`);
   if (r["kind"] !== STATE_KIND) malformed(where, "kind", `expected ${JSON.stringify(STATE_KIND)}`);
   const seq = seqNumber(r["seq"], where, "seq");
   const predecessorId = r["predecessorId"] === null ? null : hex(r["predecessorId"], where, "predecessorId");
@@ -219,7 +228,7 @@ export function assertStateObjectShape(value: unknown, where: string): StateObje
   for (const ns of Object.keys(a as object)) if (ns.length === 0) malformed(where, "adapter", "empty namespace key");
 
   return {
-    schemaVersion: STATE_SCHEMA_VERSION,
+    schemaVersion,
     kind: STATE_KIND,
     seq,
     predecessorId,

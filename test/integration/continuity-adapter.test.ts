@@ -5,16 +5,17 @@ import { activateAdapter, CONTINUITY_ID, continuityStateOf, grantAuthorization, 
 import { errorCode } from "../../src/core/errors.ts";
 import { sha256Hex } from "../../src/core/hash.ts";
 import { current, observe, orientProject, type Project } from "../../src/harness/index.ts";
-import { prepared, projectWith } from "../helpers/adapter-fixture.ts";
+import { enter, prepared, projectWith } from "../helpers/adapter-fixture.ts";
 import { withTempDir } from "../helpers/tmpdir.ts";
 
-const ALL = ["orient", "begin", "progress", "checkpoint", "pause", "resume", "handoff"];
+const ALL = ["orient", "session", "begin", "progress", "checkpoint", "pause", "resume", "handoff"];
 
 async function ready(dir: string): Promise<{ project: Project; grantId: string }> {
   const { project } = await projectWith(dir, []);
   await installAdapter(project, { adapterId: CONTINUITY_ID, requester: "h", ...(await prepared(project)) });
   const g = await grantAuthorization(project, { scope: { adapterId: CONTINUITY_ID, capabilities: ALL.filter((c) => c !== "orient") }, grantor: "H", statement: "all", requester: "h", ...(await prepared(project)) });
   await activateAdapter(project, { adapterId: CONTINUITY_ID, capabilities: ALL, requester: "h", ...(await prepared(project)) });
+  await enter(project);
   return { project, grantId: g.record.grantId };
 }
 
@@ -64,6 +65,10 @@ describe("continuity workflow adapter (the one v1 workflow adapter)", () => {
       assert.equal(await lifecycle(project), "handed-off");
       assert.deepEqual(continuityStateOf({ state, facts: await observe(project) }).lastHandoff, { to: "agent-b", atSeq: state.current.object.seq });
 
+      // A handoff ends the handing-off chat's entry: the same token can no longer continue the work.
+      await assert.rejects(act(project, "resume", {}), (e: unknown) => errorCode(e) === "ENTRY_ENDED");
+      // The receiving chat selects Mode and Path, then resumes from the exact recorded next action.
+      await enter(project);
       await act(project, "resume", {});
       assert.equal(await lifecycle(project), "active");
       const o = await orientProject(project);
@@ -114,7 +119,11 @@ describe("continuity workflow adapter (the one v1 workflow adapter)", () => {
     await withTempDir(async (dir) => {
       const { project } = await projectWith(dir, []);
       await installAdapter(project, { adapterId: CONTINUITY_ID, requester: "h", ...(await prepared(project)) });
-      await grantAuthorization(project, { scope: { adapterId: CONTINUITY_ID, capabilities: ["begin"] }, grantor: "H", statement: "ok", requester: "h", ...(await prepared(project)) });
+      await grantAuthorization(project, { scope: { adapterId: CONTINUITY_ID, capabilities: ["session", "begin"] }, grantor: "H", statement: "ok", requester: "h", ...(await prepared(project)) });
+      // Nothing is active yet: neither entering nor beginning can be used although both are granted.
+      await assert.rejects(enter(project), (e: unknown) => errorCode(e) === "ADAPTER_NOT_ACTIVE");
+      await activateAdapter(project, { adapterId: CONTINUITY_ID, capabilities: ["session"], requester: "h", ...(await prepared(project)) });
+      await enter(project);
       await assert.rejects(act(project, "begin", { work: "t", nextAction: "n" }), (e: unknown) => errorCode(e) === "ADAPTER_NOT_ACTIVE");
       await activateAdapter(project, { adapterId: CONTINUITY_ID, capabilities: ["begin"], requester: "h", ...(await prepared(project)) });
       assert.equal((await act(project, "begin", { work: "t", nextAction: "n" })).result.status, "published");

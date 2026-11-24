@@ -6,12 +6,12 @@
 // Time is expressed in authoritative sequence numbers, not wall-clock time,
 // so records are deterministic and cannot be selected by timestamp.
 
-import { promises as fs } from "node:fs";
 import * as nodePath from "node:path";
 import { canonicalBytes, parseCanonical } from "../canon.ts";
 import { ContinuityError } from "../errors.ts";
 import { digestOf, isSha256Hex } from "../hash.ts";
 import type { Layout } from "../state/layout.ts";
+import { readAuthoritativeFile, readAuthoritativeFileSet, type AuthoritativeFile } from "../state/surface.ts";
 import type { Platform } from "../../platform/index.ts";
 
 export const AUTHZ_KIND = "treepo.authz";
@@ -108,31 +108,28 @@ export function authzRecordFile(layout: Layout, grantId: string): string {
 export async function writeAuthzRecord(platform: Platform, layout: Layout, record: AuthzRecord, label: string): Promise<void> {
   const path = authzRecordFile(layout, record.grantId);
   const bytes = canonicalBytes(record);
-  try {
-    const existing = await fs.readFile(path);
+  // Never through a link: a linked entry at the record path fails closed.
+  const existing = await readAuthoritativeFile(path);
+  if (existing !== undefined) {
     if (Buffer.compare(existing, bytes) === 0) return;
     throw new ContinuityError({ code: "AUTHZ_COLLISION", message: `authorization record ${record.grantId} exists with different bytes`, details: { path } });
-  } catch (error) {
-    if ((error as { code?: unknown }).code !== "ENOENT") throw error;
   }
   await platform.writeFileAtomic(path, bytes, { label });
 }
 
-export async function readAuthzRecords(layout: Layout): Promise<AuthzRecord[]> {
-  let names: string[];
-  try {
-    names = (await fs.readdir(layout.authzDir)).sort();
-  } catch (error) {
-    if ((error as { code?: unknown }).code === "ENOENT") return [];
-    throw error;
-  }
+/**
+ * Interpret an already-read authorization file set. Callers that need
+ * anchoring digest these same bytes (see `loadAnchoredAuthz`), so the set
+ * that is hashed is exactly the set that is interpreted.
+ */
+export function parseAuthzRecords(files: readonly AuthoritativeFile[]): AuthzRecord[] {
   const out: AuthzRecord[] = [];
-  for (const name of names) {
+  for (const { name, bytes } of files) {
     const m = /^([0-9a-f]{64})\.json$/.exec(name);
     if (m === null) malformed(name, "not an authorization record file name");
     let parsed: unknown;
     try {
-      parsed = parseCanonical(await fs.readFile(nodePath.join(layout.authzDir, name)));
+      parsed = parseCanonical(bytes);
     } catch (cause) {
       throw new ContinuityError({ code: "AUTHZ_MALFORMED", message: `${name}: not canonical JSON`, details: { where: name }, cause });
     }
@@ -141,4 +138,9 @@ export async function readAuthzRecords(layout: Layout): Promise<AuthzRecord[]> {
     out.push(rec);
   }
   return out;
+}
+
+/** Every authorization record on disk, read without following links; unsupported entries fail closed. Not an anchoring proof. */
+export async function readAuthzRecords(layout: Layout): Promise<AuthzRecord[]> {
+  return parseAuthzRecords(await readAuthoritativeFileSet(layout.authzDir));
 }

@@ -22,7 +22,7 @@ import { adapters, current, exportProject, hydrateProject, importProject, openPr
 import { selectPlatform } from "../../src/platform/index.ts";
 import { isSemanticError, semanticDbPath } from "../../src/semantic/index.ts";
 import { decodeBundle } from "../../src/transport/index.ts";
-import { prepared } from "../helpers/adapter-fixture.ts";
+import { enter, prepared } from "../helpers/adapter-fixture.ts";
 import { AUTH, createGitRepo } from "../helpers/git-fixture.ts";
 import { authoritativeDigest } from "../helpers/semantic-fixture.ts";
 import { exists, withTempDir } from "../helpers/tmpdir.ts";
@@ -156,9 +156,11 @@ describe("transport (Acceptance L, Windows-to-Windows)", () => {
       assert.equal(st.health, "missing");
       assert.equal(st.continuity.ok, true);
 
+      await enter(rp);
       const next = await runWorkflowTransition(rp, { adapterId: CONTINUITY_ID, action: "progress", input: progressInput(), requester: "agent-on-receiving-copy", ...(await prepared(rp)) });
       assert.equal(next.result.status, "published");
-      assert.equal((await current(rp)).current.object.predecessorId, exp.current.stateId, "continuation extends the transported lineage");
+      const continued = await current(rp);
+      assert.equal(continued.chain[continued.chain.length - 3]!.id, exp.current.stateId, "continuation (fresh entry, then progress) extends the transported lineage");
       assert.equal((await validateAuthoritativeState(rp.layout)).ok, true);
       const h = await hydrateProject(rp);
       assert.equal(h.boundStateId, next.result.stateId, "a new session capability is issued on the receiving copy only after its own full assurance");
@@ -369,6 +371,7 @@ describe("transport (Acceptance L, Windows-to-Windows)", () => {
       const recv = await cloneRepo(repo, path.join(dir, "recv"));
       await importProject(recv.root, b1);
       const rp = await openProject(recv.root);
+      await enter(rp);
       await checkpoint(rp, "receiving copy's own work");
       const recvState = (await current(rp)).current.id;
 
@@ -417,6 +420,7 @@ describe("transport (Acceptance L, Windows-to-Windows)", () => {
       assert.equal(again.capabilityInvalidated, true);
       assert.equal(await treepoDigest(recv.root), digest, "no authoritative byte changed");
       assert.equal((await readCapability(rp.layout)).status, "absent");
+      await enter(rp);
       assert.equal((await routine(rp, { adapterId: CONTINUITY_ID, action: "progress", input: progressInput(), requester: "a", token: h.token })).eligibility.reason, "no-capability");
 
       await repo.commit("chore: commit treepo state");
@@ -470,6 +474,7 @@ describe("transport (Acceptance L, Windows-to-Windows)", () => {
       assert.ok(ff.written >= 3);
       assert.equal((await validateAuthoritativeState(rp.layout)).ok, true);
       assert.deepEqual(await adapters(rp), await adapters(project), "the newly granted authority arrived with the state that anchors it");
+      await enter(rp);
       const r = await routine(rp, { adapterId: CONTINUITY_ID, action: "progress", input: progressInput(), requester: "a", token: h.token });
       assert.equal(r.path, "full-assurance");
       assert.equal(r.eligibility.reason, "no-capability", "the pre-import capability did not survive the receiving-copy boundary");
@@ -512,6 +517,7 @@ describe("transport (Acceptance L, Windows-to-Windows)", () => {
       const everything = [...(await treepoFiles(recv.root, { includeRuntime: true }))!.values()].map((b) => b.toString("latin1")).join("\n");
       assert.equal(everything.includes(token.secretHex), false);
 
+      await enter(rp);
       const r1 = await routine(rp, { adapterId: CONTINUITY_ID, action: "progress", input: progressInput(), requester: "a", token: h.token });
       assert.equal(r1.path, "full-assurance");
       assert.equal(r1.eligibility.reason, "no-capability", "the origin's token has nothing to match on the receiving copy");
@@ -568,6 +574,7 @@ describe("transport (Acceptance L, Windows-to-Windows)", () => {
       assert.equal((await semantic.query(rp, "tokenizer")).authoritative?.stateId, e2.current.stateId);
 
       await fs.rm(semanticDbPath(rp.layout));
+      await enter(rp);
       const next = await runWorkflowTransition(rp, { adapterId: CONTINUITY_ID, action: "progress", input: progressInput(), requester: "agent", ...(await prepared(rp)) });
       assert.equal(next.result.status, "published");
       assert.equal((await validateAuthoritativeState(rp.layout)).ok, true);

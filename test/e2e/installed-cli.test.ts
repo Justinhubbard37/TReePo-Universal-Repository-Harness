@@ -33,6 +33,8 @@ import {
 import { importSpecifiers, repoRoot } from "../helpers/repo.ts";
 
 const AGENT_SOURCE = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "helpers", "external-agent.mjs"), "utf8");
+/** Entry token of the scripted chat currently driving the shared project (each fresh chat enters anew). */
+let chatEntry = "";
 const CONTINUITY = "treepo.workflow.continuity";
 
 type Json = Record<string, unknown>;
@@ -157,11 +159,12 @@ describe("ACS-001 machine-installed treepo command", () => {
     assert.equal((o0["controlSurface"] as { command: string }).command, "treepo");
     ok(await t("route", "--intent", "continue governed work across sessions"), "route");
     ok(await t("adapter", "install", CONTINUITY, "--requester", "director"), "adapter install");
-    ok(await t("authorize", "grant", "--adapter", CONTINUITY, "--capability", "begin,progress,checkpoint", "--grantor", "Director", "--statement", "Authorize continuity work.", "--requester", "director"), "authorize grant");
+    ok(await t("authorize", "grant", "--adapter", CONTINUITY, "--capability", "session,begin,progress,checkpoint", "--grantor", "Director", "--statement", "Authorize continuity work.", "--requester", "director"), "authorize grant");
     ok(await t("authorize", "grant", "--adapter", CONTINUITY, "--capability", "pause", "--grantor", "Director", "--statement", "Authorize pausing.", "--requester", "director"), "authorize grant pause");
-    ok(await t("adapter", "activate", CONTINUITY, "--capability", "orient,begin,progress,checkpoint,pause", "--requester", "director"), "adapter activate");
+    ok(await t("adapter", "activate", CONTINUITY, "--capability", "orient,session,begin,progress,checkpoint,pause", "--requester", "director"), "adapter activate");
+    chatEntry = String(j(ok(await t("enter", "--mode", "build", "--path", "developer", "--requester", "director"), "enter"))["entry"]);
     const o1 = j(ok(await t("orient"), "orient"));
-    const begin = j(ok(await t("begin", "--work", "independent project work", "--next", "draft the first module", "--requester", "agent"), "begin"));
+    const begin = j(ok(await t("begin", "--work", "independent project work", "--next", "draft the first module", "--requester", "agent", "--entry", chatEntry), "begin"));
     assert.equal((begin["nextAction"] as { description: string }).description, "draft the first module");
     const o2 = j(ok(await t("orient"), "orient"));
     assert.ok((o2["seq"] as number) > (o1["seq"] as number), "begin published a successor");
@@ -211,16 +214,18 @@ describe("ACS-001 machine-installed treepo command", () => {
   it("ACS-AC-11: authority, capability, activation and staleness refusals are unchanged through the installed command", async () => {
     const t = (...args: string[]): Promise<Result> => treepo(machine.withCli, project, ...args);
     const stateId = async (): Promise<string> => String(j(ok(await t("orient"), "orient"))["stateId"]);
+    // The external agent of the previous case was its own chat; this one is a fresh chat and enters anew.
+    chatEntry = String(j(ok(await t("enter", "--mode", "build", "--path", "keep", "--requester", "director"), "enter"))["entry"]);
 
     // Invalid/unavailable capability: handoff is neither active nor authorized.
     let s = await stateId();
-    const inactive = await t("handoff", "--to", "someone", "--requester", "agent");
+    const inactive = await t("handoff", "--to", "someone", "--requester", "agent", "--entry", chatEntry);
     assert.equal(inactive.code, 1);
     assert.equal(errorCode(inactive), "ADAPTER_NOT_ACTIVE");
     assert.equal(await stateId(), s);
 
     // Inappropriate activation: activating a consequential capability without authorization.
-    const activation = await t("adapter", "activate", CONTINUITY, "--capability", "orient,begin,progress,checkpoint,pause,handoff", "--requester", "agent");
+    const activation = await t("adapter", "activate", CONTINUITY, "--capability", "orient,session,begin,progress,checkpoint,pause,handoff", "--requester", "agent");
     assert.equal(activation.code, 1);
     assert.equal(errorCode(activation), "AUTHORIZATION_MISSING");
     assert.equal(await stateId(), s);
@@ -232,7 +237,7 @@ describe("ACS-001 machine-installed treepo command", () => {
     assert.ok(pauseGrant !== undefined, `pause grant present: ${JSON.stringify(grants).slice(0, 400)}`);
     ok(await t("authorize", "revoke", "--grant", pauseGrant.grantId, "--grantor", "Director", "--statement", "Withdraw pausing.", "--requester", "director"), "revoke");
     s = await stateId();
-    const unauthorized = await t("pause", "--next", "later", "--requester", "agent");
+    const unauthorized = await t("pause", "--next", "later", "--requester", "agent", "--entry", chatEntry);
     assert.equal(unauthorized.code, 1);
     assert.equal(errorCode(unauthorized), "AUTHORIZATION_MISSING");
     assert.equal(await stateId(), s);
@@ -240,7 +245,7 @@ describe("ACS-001 machine-installed treepo command", () => {
     // Stale prepared state: a bundle exported before a later successor is refused on import.
     const bundle = path.join(scratch, "stale bundle.json");
     ok(await t("export", "--out", bundle), "export");
-    ok(await t("checkpoint", "--label", "after export", "--requester", "agent"), "checkpoint");
+    ok(await t("checkpoint", "--label", "after export", "--requester", "agent", "--entry", chatEntry), "checkpoint");
     s = await stateId();
     const stale = await t("import", "--bundle", bundle);
     assert.equal(stale.code, 1);
@@ -249,8 +254,8 @@ describe("ACS-001 machine-installed treepo command", () => {
 
     // Stale session capability: a token bound to an older state never takes the routine fast lane.
     const token = String(j(ok(await t("hydrate"), "hydrate"))["token"]);
-    ok(await t("checkpoint", "--label", "moves state past the token", "--requester", "agent"), "checkpoint");
-    const routine = j(ok(await t("progress", "--done", "x=y", "--next", "continue", "--requester", "agent", "--session", token), "progress --session"));
+    ok(await t("checkpoint", "--label", "moves state past the token", "--requester", "agent", "--entry", chatEntry), "checkpoint");
+    const routine = j(ok(await t("progress", "--done", "x=y", "--next", "continue", "--requester", "agent", "--session", token, "--entry", chatEntry), "progress --session"));
     assert.equal(routine["path"], "full-assurance");
     assert.deepEqual(routine["eligibility"], { eligible: false, reason: "binding-mismatch" });
     assert.equal(j(ok(await t("validate"), "validate"))["ok"], true);
@@ -278,7 +283,7 @@ describe("ACS-001 machine-installed treepo command", () => {
     ok(installCli(machine, artifact.tarball), "restore");
     const orientAfter = j(ok(await treepo(machine.withCli, project, "orient"), "orient after restore"));
     assert.equal(orientAfter["stateId"], orientBefore["stateId"], "governed position survived removal and restore");
-    const next = j(ok(await treepo(machine.withCli, project, "checkpoint", "--label", "after restore", "--requester", "agent"), "checkpoint after restore"));
+    const next = j(ok(await treepo(machine.withCli, project, "checkpoint", "--label", "after restore", "--requester", "agent", "--entry", chatEntry), "checkpoint after restore"));
     assert.ok(next["result"] !== undefined);
     assert.ok((j(ok(await treepo(machine.withCli, project, "orient"), "orient"))["seq"] as number) > (orientAfter["seq"] as number));
   });

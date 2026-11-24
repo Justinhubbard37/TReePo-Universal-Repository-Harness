@@ -21,7 +21,17 @@
 // Rollback removes only files whose bytes still hash to what this import
 // wrote, restores removed surface files from the journal, and removes only
 // this import's temp files by name. Recovery runs only under the writer lock
-// and re-verifies ownership immediately before it changes anything. With the
+// and re-verifies ownership immediately before every independently mutating
+// operation (R-02 correction): each pointer change, temp-file removal, payload
+// removal, directory creation, payload restoration, journal removal and owner
+// removal is preceded by its own `lock.verify()`, including inside loops and
+// helpers. The first failed verification raises LOCK_LOST and the handle
+// performs no further mutation; whatever was already done stays on disk with
+// the journal, so a later holder of the lock resolves it by the same
+// deterministic recovery from on-disk state alone. A pre-operation check
+// narrows, but cannot remove, the window between one verification and the
+// single operation that follows it; that residual window is inherent to an
+// advisory lock file and is not claimed away. With the
 // lock held and no core transaction pending, CURRENT still at the predecessor
 // proves no other writer has published since the import began, so bytes that
 // match this import's recorded digests cannot belong to anyone else; once
@@ -127,14 +137,29 @@ export async function readImportJournal(layout: Layout): Promise<ImportJournalRe
   return reason === null ? { status: "present", journal: parsed as unknown as ImportJournal } : { status: "malformed", reason };
 }
 
-export async function writeImportJournal(platform: Platform, layout: Layout, journal: ImportJournal): Promise<void> {
+/** Write the import journal. Ownership is re-verified immediately before the directory creation and before the write. */
+export async function writeImportJournal(platform: Platform, layout: Layout, journal: ImportJournal, lock: LockHandle): Promise<void> {
   const path = importJournalFile(layout);
-  await fs.mkdir(nodePath.dirname(path), { recursive: true });
+  await ensureDirOwned(nodePath.dirname(path), lock);
+  await lock.verify();
   await platform.writeFileAtomic(path, canonicalBytes(journal), { label: "transport-journal" });
 }
 
-export async function removeImportJournal(platform: Platform, layout: Layout): Promise<void> {
+/** Remove the import journal. Ownership is re-verified immediately before the removal. */
+export async function removeImportJournal(platform: Platform, layout: Layout, lock: LockHandle): Promise<void> {
+  await lock.verify();
   await platform.removeFile(importJournalFile(layout), { label: "transport-journal" });
+}
+
+/** Create `dir` (and missing parents) only when it is absent, re-verifying ownership immediately before the creation. */
+export async function ensureDirOwned(dir: string, lock: LockHandle): Promise<void> {
+  try {
+    if ((await fs.stat(dir)).isDirectory()) return;
+  } catch (error) {
+    if ((error as { code?: unknown }).code !== "ENOENT") throw error;
+  }
+  await lock.verify();
+  await fs.mkdir(dir, { recursive: true });
 }
 
 export function treepoPath(layout: Layout, rel: string): string {
@@ -156,8 +181,11 @@ function ambiguous(message: string, details: Record<string, unknown>, cause?: un
 
 const TEMP_NAME = /^\.(.+)\.tmp-\d+-[0-9a-f]{12}$/;
 
-/** Remove temp files left by this import's own atomic writes, identified by the exact file names the journal names. */
-export async function removeImportTemps(platform: Platform, layout: Layout, journal: ImportJournal): Promise<void> {
+/**
+ * Remove temp files left by this import's own atomic writes, identified by the exact file names the journal names.
+ * Ownership is re-verified immediately before each individual removal.
+ */
+export async function removeImportTemps(platform: Platform, layout: Layout, journal: ImportJournal, lock: LockHandle): Promise<void> {
   const byDir = new Map<string, Set<string>>();
   const note = (rel: string): void => {
     const full = treepoPath(layout, rel);
@@ -182,7 +210,9 @@ export async function removeImportTemps(platform: Platform, layout: Layout, jour
     }
     for (const entry of entries) {
       const m = TEMP_NAME.exec(entry);
-      if (m !== null && names.has(m[1]!)) await platform.removeFile(nodePath.join(dir, entry), { label: "transport-temp" });
+      if (m === null || !names.has(m[1]!)) continue;
+      await lock.verify();
+      await platform.removeFile(nodePath.join(dir, entry), { label: "transport-temp" });
     }
   }
 }
@@ -192,6 +222,12 @@ export async function removeImportTemps(platform: Platform, layout: Layout, jour
  * this import already advanced to the target is first returned to the
  * predecessor (or removed when there was none). Checks every file before
  * touching anything; any foreign or unexpected bytes abort with nothing changed.
+ *
+ * Every mutation below is its own step preceded by its own ownership
+ * verification. If ownership is lost part-way, LOCK_LOST is raised at the next
+ * step, nothing further is changed by this handle, and the journal is still
+ * on disk (it is removed second to last), so the partial rollback is resumed
+ * idempotently by whoever next holds the lock and runs import recovery.
  */
 export async function rollbackImport(platform: Platform, layout: Layout, journal: ImportJournal, options: { readonly restorePointer: boolean; readonly lock: LockHandle }): Promise<void> {
   const removeAdds: string[] = [];
@@ -208,8 +244,10 @@ export async function rollbackImport(platform: Platform, layout: Layout, journal
     if (existing === undefined || removeAdds.includes(rem.path)) restore.push(rem);
     else if (sha256Hex(existing) !== rem.digest) throw ambiguous(`${rem.path} holds bytes that are neither the removed original nor this import's; nothing rolled back`, { path: rem.path });
   }
-  // Every check above is read-only. Nothing below is done without re-verified writer ownership.
-  await options.lock.verify();
+  // Every check above is read-only. Nothing below is done without writer ownership re-verified
+  // immediately before that single operation.
+  const lock = options.lock;
+  await lock.verify();
   let pointerBytes: Uint8Array | undefined;
   if (options.restorePointer) {
     pointerBytes = await readIfExists(layout.currentFile);
@@ -218,21 +256,30 @@ export async function rollbackImport(platform: Platform, layout: Layout, journal
     const same = (a: Uint8Array | undefined, b: Uint8Array | undefined): boolean => a !== undefined && b !== undefined && Buffer.compare(a, b) === 0;
     if (pointerBytes !== undefined && !same(pointerBytes, targetBytes) && !same(pointerBytes, predecessorBytes)) throw ambiguous("CURRENT is neither the import target nor its predecessor; nothing rolled back", {});
     if (same(pointerBytes, targetBytes)) {
+      await lock.verify();
       if (journal.predecessor === null) await platform.removeFile(layout.currentFile, { label: "transport-rollback" });
       else await platform.writeFileAtomic(layout.currentFile, predecessorBytes!, { label: "transport-rollback" });
     }
   }
-  await removeImportTemps(platform, layout, journal);
-  for (const path of removeAdds) if (path !== "OWNER") await platform.removeFile(treepoPath(layout, path), { label: "transport-rollback" });
+  await removeImportTemps(platform, layout, journal, lock);
+  for (const path of removeAdds) {
+    if (path === "OWNER") continue;
+    await lock.verify();
+    await platform.removeFile(treepoPath(layout, path), { label: "transport-rollback" });
+  }
   for (const rem of restore) {
     const path = treepoPath(layout, rem.path);
-    await fs.mkdir(nodePath.dirname(path), { recursive: true });
+    await ensureDirOwned(nodePath.dirname(path), lock);
+    await lock.verify();
     await platform.writeFileAtomic(path, Buffer.from(rem.bytes, "base64"), { label: "transport-rollback" });
   }
-  await removeImportJournal(platform, layout);
+  await removeImportJournal(platform, layout, lock);
   // The owner marker goes last, after the journal: an interruption here leaves only this bundle's
   // owner marker (an "incomplete" install import can resume), never runtime files without an owner.
-  if (removeAdds.includes("OWNER")) await platform.removeFile(layout.ownerFile, { label: "transport-rollback" });
+  if (removeAdds.includes("OWNER")) {
+    await lock.verify();
+    await platform.removeFile(layout.ownerFile, { label: "transport-rollback" });
+  }
 }
 
 export type ImportRecoveryOutcome = "completed" | "rolled-back" | "abandoned";
@@ -257,7 +304,11 @@ export async function recoverImport(platform: Platform, layout: Layout, lock: Lo
     } catch (error) {
       if ((error as { code?: unknown }).code !== "ENOENT") throw error;
     }
-    for (const entry of entries) if (TEMP_NAME.exec(entry)?.[1] === "import.json") await platform.removeFile(nodePath.join(dir, entry), { label: "transport-temp" });
+    for (const entry of entries) {
+      if (TEMP_NAME.exec(entry)?.[1] !== "import.json") continue;
+      await lock.verify();
+      await platform.removeFile(nodePath.join(dir, entry), { label: "transport-temp" });
+    }
     return null;
   }
   if (read.status === "malformed") {
@@ -284,9 +335,8 @@ export async function recoverImport(platform: Platform, layout: Layout, lock: Lo
     } catch (error) {
       throw ambiguous("CURRENT names the import target but the state does not validate; nothing touched", { target: journal.target }, error);
     }
-    await lock.verify();
-    await removeImportTemps(platform, layout, journal);
-    await removeImportJournal(platform, layout);
+    await removeImportTemps(platform, layout, journal, lock);
+    await removeImportJournal(platform, layout, lock);
     return { ...base, outcome: "completed", currentStateId: pointer.stateId };
   }
 
@@ -312,9 +362,8 @@ export async function recoverImport(platform: Platform, layout: Layout, lock: Lo
       if (!isTreepoError(error)) throw error;
     }
     if (state !== undefined) {
-      await lock.verify();
       if (state.chain.some((s) => s.id === journal.target.stateId)) {
-        await removeImportJournal(platform, layout);
+        await removeImportJournal(platform, layout, lock);
         return { ...base, outcome: "completed", currentStateId: state.current.id };
       }
       // The state validates yet is neither the predecessor nor on the target's lineage. Every partial
@@ -322,7 +371,7 @@ export async function recoverImport(platform: Platform, layout: Layout, lock: Lo
       // file in those directories) makes validation fail, so none can be present: the import never took
       // effect and later governed work continued from the predecessor. The journal is void. (Scaffolding
       // written from core constants, if any, is harmless and stays.)
-      await removeImportJournal(platform, layout);
+      await removeImportJournal(platform, layout, lock);
       return { ...base, outcome: "abandoned", currentStateId: state.current.id };
     }
   }

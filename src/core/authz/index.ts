@@ -12,6 +12,7 @@ export {
   AUTHZ_SCHEMA_VERSION,
   authzRecordFile,
   buildAuthzRecord,
+  parseAuthzRecords,
   readAuthzRecords,
   writeAuthzRecord,
   type AuthzRecord,

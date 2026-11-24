@@ -9,7 +9,7 @@ import { runGit } from "../../src/adapters/repo/git/index.ts";
 import { canonicalBytes } from "../../src/core/canon.ts";
 import { digestOf, sha256Hex } from "../../src/core/hash.ts";
 import type { Project } from "../../src/harness/index.ts";
-import { prepared, projectWith } from "./adapter-fixture.ts";
+import { enter, prepared, projectWith } from "./adapter-fixture.ts";
 import type { GitRepo } from "./git-fixture.ts";
 
 /**
@@ -24,8 +24,9 @@ export async function originProject(dir: string): Promise<{ repo: GitRepo; proje
   await fs.mkdir(origin, { recursive: true });
   const { repo, project } = await projectWith(origin, []);
   await installAdapter(project, { adapterId: CONTINUITY_ID, requester: "h", ...(await prepared(project)) });
-  await grantAuthorization(project, { scope: { adapterId: CONTINUITY_ID, capabilities: ["begin", "progress", "checkpoint", "pause"] }, grantor: "Dana Reviewer", statement: "Approved the parser refactor after design review.", requester: "h", ...(await prepared(project)) });
-  await activateAdapter(project, { adapterId: CONTINUITY_ID, capabilities: ["orient", "begin", "progress", "checkpoint", "pause"], requester: "h", ...(await prepared(project)) });
+  await grantAuthorization(project, { scope: { adapterId: CONTINUITY_ID, capabilities: ["session", "begin", "progress", "checkpoint", "pause"] }, grantor: "Dana Reviewer", statement: "Approved the parser refactor after design review.", requester: "h", ...(await prepared(project)) });
+  await activateAdapter(project, { adapterId: CONTINUITY_ID, capabilities: ["orient", "session", "begin", "progress", "checkpoint", "pause"], requester: "h", ...(await prepared(project)) });
+  await enter(project);
   await runWorkflowTransition(project, { adapterId: CONTINUITY_ID, action: "begin", input: { work: "parser refactor", nextAction: "write the tokenizer" }, requester: "agent", ...(await prepared(project)) });
   await repo.write("src/tokenizer.txt", "tok\n");
   await repo.git(["add", "--", "src/tokenizer.txt"]);

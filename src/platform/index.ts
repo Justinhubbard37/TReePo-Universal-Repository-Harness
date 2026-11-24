@@ -7,6 +7,7 @@ import type { Platform, PlatformFactoryOptions } from "./types.ts";
 import { createWin32Platform } from "./win32.ts";
 
 export type { Platform, PlatformId, FaultInjector, FsyncDirResult, ProcessLiveness } from "./types.ts";
+export { isRealDirectory, OPEN_NOFOLLOW_SUPPORTED, readRegularFileNoFollow, readRegularFileSet, UnsupportedEntryError, type RegularFile, type UnsupportedEntry } from "./anchored-read.ts";
 
 export interface SelectPlatformOptions extends PlatformFactoryOptions {
   /** Override for tests; defaults to process.platform. */

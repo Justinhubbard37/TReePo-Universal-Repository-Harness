@@ -183,6 +183,10 @@ export function renderOrientation(o: Orientation): string {
         lines.push("");
         for (const l of section.lines) lines.push(`- ${l}`);
         lines.push("");
+        if (section.verbatim !== undefined) {
+          for (const l of section.verbatim) lines.push(l);
+          lines.push("");
+        }
       }
       lines.push("## Working with the human");
       lines.push("");

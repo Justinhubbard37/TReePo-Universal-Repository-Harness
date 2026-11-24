@@ -38,6 +38,8 @@ export interface GenesisInput {
   readonly adapter?: { readonly [namespace: string]: CanonicalValue };
   /** Authorization records the bootstrap relied upon (Architecture §7 provenance). */
   readonly authzRefs?: readonly string[];
+  /** State schema epoch; defaults to the current one. */
+  readonly schemaVersion?: number;
 }
 
 export interface SuccessorInput {
@@ -57,6 +59,11 @@ export interface SuccessorInput {
   readonly addCompleted?: readonly NewItem[];
   /** Namespace patches; `null` removes a namespace. */
   readonly adapter?: { readonly [namespace: string]: CanonicalValue | null };
+  /**
+   * Raise the state schema epoch to at least this value. A successor otherwise keeps its predecessor's epoch, so
+   * a legacy lineage stays in its epoch until a transition that needs a later one says so explicitly.
+   */
+  readonly raiseSchemaVersion?: number;
 }
 
 function violation(code: string, message: string, details: Record<string, unknown>): never {
@@ -79,7 +86,7 @@ function carryForward(kind: "accepted" | "completed", previous: readonly Tracked
 
 export function buildGenesis(input: GenesisInput): StateObject {
   const object: StateObject = {
-    schemaVersion: STATE_SCHEMA_VERSION,
+    schemaVersion: input.schemaVersion ?? STATE_SCHEMA_VERSION,
     kind: STATE_KIND,
     seq: 0,
     predecessorId: null,
@@ -112,7 +119,7 @@ export function buildSuccessor(input: SuccessorInput): StateObject {
     else adapter[ns] = value;
   }
   const object: StateObject = {
-    schemaVersion: STATE_SCHEMA_VERSION,
+    schemaVersion: Math.max(pred.schemaVersion, input.raiseSchemaVersion ?? pred.schemaVersion),
     kind: STATE_KIND,
     seq,
     predecessorId: input.predecessor.id,
@@ -148,6 +155,7 @@ export function buildSuccessor(input: SuccessorInput): StateObject {
 export function checkSuccession(predecessorId: string, pred: StateObject, succ: StateObject): void {
   if (succ.predecessorId !== predecessorId) violation("LINEAGE_INVALID", "successor predecessorId does not reference predecessor", { expected: predecessorId, actual: succ.predecessorId });
   if (succ.seq !== pred.seq + 1) violation("LINEAGE_INVALID", `successor seq ${succ.seq} is not predecessor seq ${pred.seq} + 1`, { predSeq: pred.seq, succSeq: succ.seq });
+  if (succ.schemaVersion < pred.schemaVersion) violation("LINEAGE_INVALID", `successor schema epoch ${succ.schemaVersion} is lower than predecessor epoch ${pred.schemaVersion}`, { predSchema: pred.schemaVersion, succSchema: succ.schemaVersion });
   const expectedRoot = pred.rootId ?? predecessorId;
   if (succ.rootId !== expectedRoot) violation("LINEAGE_INVALID", "successor rootId does not match lineage root", { expected: expectedRoot, actual: succ.rootId });
   const supersedes = new Set(succ.transition.supersedes);

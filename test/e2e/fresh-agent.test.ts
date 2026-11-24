@@ -11,7 +11,7 @@ import { activateAdapter, CONTINUITY_ID, grantAuthorization, installAdapter, run
 import { sha256Hex } from "../../src/core/hash.ts";
 import { validateAuthoritativeState } from "../../src/core/state/index.ts";
 import { current, refreshAgentEntry } from "../../src/harness/index.ts";
-import { prepared, projectWith } from "../helpers/adapter-fixture.ts";
+import { enter, prepared, projectWith } from "../helpers/adapter-fixture.ts";
 import { withTempDir } from "../helpers/tmpdir.ts";
 
 const AGENT_B = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "helpers", "agent-b.ts");
@@ -40,8 +40,9 @@ describe("fresh-agent continuation (Acceptance C)", () => {
 
       // Setup by the human: install and activate the continuity adapter with authority for the work Agent A will do (not resume).
       await installAdapter(project, { adapterId: CONTINUITY_ID, requester: "human", ...(await prepared(project)) });
-      const grantA = await grantAuthorization(project, { scope: { adapterId: CONTINUITY_ID, capabilities: ["begin", "progress", "checkpoint", "pause"] }, grantor: "Human Owner", statement: "Agent A may begin, record progress, checkpoint and pause.", requester: "human", ...(await prepared(project)) });
-      await activateAdapter(project, { adapterId: CONTINUITY_ID, capabilities: ["orient", "begin", "progress", "checkpoint", "pause"], requester: "human", ...(await prepared(project)) });
+      const grantA = await grantAuthorization(project, { scope: { adapterId: CONTINUITY_ID, capabilities: ["session", "begin", "progress", "checkpoint", "pause"] }, grantor: "Human Owner", statement: "Agent A may begin, record progress, checkpoint and pause.", requester: "human", ...(await prepared(project)) });
+      await activateAdapter(project, { adapterId: CONTINUITY_ID, capabilities: ["orient", "session", "begin", "progress", "checkpoint", "pause"], requester: "human", ...(await prepared(project)) });
+      await enter(project);
 
       // C.1 Agent A begins from valid authoritative state.
       assert.equal((await validateAuthoritativeState(project.layout)).ok, true);
@@ -90,17 +91,25 @@ describe("fresh-agent continuation (Acceptance C)", () => {
       assert.equal(b["lifecycle"], "paused");
       assert.equal(b["drift"], true, "the human committed the state files after the pause, so HEAD moved; B sees WORKING_COPY_DRIFT and must re-observe before acting");
       const authorizedNow = b["authorizedNow"] as { adapterId: string; capability: string }[];
-      assert.deepEqual(authorizedNow.map((a) => a.capability).sort(), ["begin", "checkpoint", "pause", "progress"], "C.10 authority constraints visible: resume is not among them");
+      assert.deepEqual(authorizedNow.map((a) => a.capability).sort(), ["begin", "checkpoint", "pause", "progress", "session"], "C.10 authority constraints visible: resume is not among them");
+      const before = b["attemptsWithoutEntry"] as Record<string, string>;
+      assert.deepEqual(before, { resume: "ENTRY_REQUIRED", begin: "ENTRY_REQUIRED", redo: "ENTRY_REQUIRED" }, "a fresh chat can do no governed work before Mode and Path are selected");
+      assert.equal(b["unchangedAfterEntrylessAttempts"], true, "those refusals mutated nothing");
+      assert.equal(b["entered"], "published", "B's fresh entry (Build, keep Path) is recorded");
+      assert.deepEqual(b["positionAfterEntry"], b["position"], "entering preserved the position");
+      assert.deepEqual(b["nextActionAfterEntry"], b["nextAction"], "entering preserved the exact next action");
       const attempts = b["attempts"] as Record<string, string>;
       assert.equal(attempts["resume"], "ADAPTER_NOT_ACTIVE", "C.12 B cannot resume: resume was never activated or authorized");
       assert.equal(attempts["begin"], "WORKFLOW_POLICY", "C.11 B cannot restart: begin is not allowed while paused");
       assert.equal(attempts["redo"], "WORKFLOW_POLICY", "C.11 B cannot re-record completed work while paused");
-      assert.equal((await current(project)).current.id, pausedState.current.id, "nothing B did mutated authoritative state");
+      assert.equal(b["entryIsTheOnlyChange"], true, "apart from the recorded entry, nothing B did mutated authoritative state");
+      assert.equal((await current(project)).current.object.seq, pausedState.current.object.seq + 1);
 
       // C.13 the human authorizes resume and activates the capability; B resumes and the correct successor validates.
       await grantAuthorization(project, { scope: { adapterId: CONTINUITY_ID, capabilities: ["resume"] }, grantor: "Human Owner", statement: "Agent B may resume from the recorded next action.", requester: "human", ...(await prepared(project)) });
       await activateAdapter(project, { adapterId: CONTINUITY_ID, capabilities: ["resume"], requester: "human", ...(await prepared(project)) });
       const b2 = await agentB(repo.root, "resume");
+      assert.equal(b2["entered"], "published", JSON.stringify(b2));
       assert.equal(b2["resume"], "published", JSON.stringify(b2));
       const after = b2["after"] as { seq: number; position: { label: string }; nextAction: { id: string }; completed: string[] };
       assert.equal(after.position.label, "active");
@@ -109,7 +118,7 @@ describe("fresh-agent continuation (Acceptance C)", () => {
       const final = await current(project);
       assert.equal(final.current.object.transition.name, `${CONTINUITY_ID}:resume`);
       assert.equal(final.current.object.transition.requester, "agent-b");
-      assert.equal(final.current.object.seq, pausedState.current.object.seq + 3);
+      assert.equal(final.current.object.seq, pausedState.current.object.seq + 5, "B's first entry, grant, activation, B's second fresh entry, resume");
       assert.equal((await validateAuthoritativeState(project.layout)).ok, true);
     });
   });

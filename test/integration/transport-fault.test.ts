@@ -19,7 +19,7 @@ import { lockFile } from "../../src/core/tx/index.ts";
 import { current, exportProject, hydrateProject, importProject, observe, openProject, orientProject, publish, recover, type Project } from "../../src/harness/index.ts";
 import { selectPlatform, type FaultInjector, type Platform } from "../../src/platform/index.ts";
 import { decodeBundle, importBundle, importJournalFile, type ExportResult } from "../../src/transport/index.ts";
-import { prepared } from "../helpers/adapter-fixture.ts";
+import { enter, prepared } from "../helpers/adapter-fixture.ts";
 import { exists } from "../helpers/tmpdir.ts";
 import { cloneRepo, originProject, removeWithRetry, treepoDigest, treepoFiles } from "../helpers/transport-fixture.ts";
 import type { GitRepo } from "../helpers/git-fixture.ts";
@@ -255,6 +255,7 @@ describe("interrupted and failed imports", () => {
     await simulateDeath(rp.layout);
     assert.equal(await exists(importJournalFile(rp.layout)), true);
     assert.equal((await validateAuthoritativeState(rp.layout)).ok, true, "nothing authoritative was written");
+    await enter(rp);
     await runWorkflowTransition(rp, { adapterId: CONTINUITY_ID, action: "checkpoint", input: { label: "work continued without recovering" }, requester: "agent", ...(await prepared(rp)) });
     const rec = await recover(rp);
     assert.equal(rec.transport?.outcome, "abandoned");
@@ -270,6 +271,7 @@ describe("interrupted and failed imports", () => {
     await assert.rejects(importProject(recv.root, shared.b2, { faults: nth("unlink:transport-journal", 1) }), (e: unknown) => errorCode(e) === "INJECTED_FAULT");
     await simulateDeath(rp.layout);
     assert.equal((await validateAuthoritativeState(rp.layout)).ok, true, "the complete target validates");
+    await enter(rp);
     await runWorkflowTransition(rp, { adapterId: CONTINUITY_ID, action: "checkpoint", input: { label: "work after the import" }, requester: "agent", ...(await prepared(rp)) });
     const rec = await recover(rp);
     assert.equal(rec.transport?.outcome, "completed");

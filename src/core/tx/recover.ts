@@ -34,14 +34,25 @@ async function readIfExists(path: string): Promise<Uint8Array | undefined> {
   }
 }
 
-/** Undo this transaction's surface changes: remove what it added (only if the bytes are still its own) and restore what it removed. */
+/**
+ * Undo this transaction's surface changes: remove what it added (only if the bytes are still its own) and restore
+ * what it removed. A replacement is recorded as remove-then-add on one path; it is undone in reverse order, and a
+ * path that already holds the bytes the transaction removed is recognized as already reverted (idempotent).
+ */
 export async function revertSurfaceChanges(platform: Platform, layout: Layout, changes: readonly JournalSurfaceChange[]): Promise<void> {
-  for (const change of changes) {
+  const reversed = [...changes].reverse();
+  for (const [index, change] of reversed.entries()) {
     const path = surfacePath(layout, change);
     const existing = await readIfExists(path);
     if (change.action === "add") {
       if (existing === undefined) continue;
-      if (sha256Hex(existing) !== change.digest) throw ambiguous("surface file added by an interrupted transaction no longer holds its bytes; not touched", { path });
+      const digest = sha256Hex(existing);
+      if (digest !== change.digest) {
+        // Still (or again) the bytes this same transaction removed from this path: nothing of the add remains.
+        const original = reversed.slice(index + 1).some((c) => c.action === "remove" && c.path === change.path && c.digest === digest);
+        if (original) continue;
+        throw ambiguous("surface file added by an interrupted transaction no longer holds its bytes; not touched", { path });
+      }
       await platform.removeFile(path, { label: "surface" });
     } else if (existing === undefined) {
       await platform.writeFileAtomic(path, Buffer.from(change.bytes, "base64"), { label: "surface" });
@@ -51,9 +62,12 @@ export async function revertSurfaceChanges(platform: Platform, layout: Layout, c
   }
 }
 
-/** Complete this transaction's surface changes idempotently. */
+/**
+ * Complete this transaction's surface changes idempotently. For a replacement (remove-then-add on one path), a
+ * path that already holds the bytes the transaction adds is recognized as already replaced.
+ */
 export async function applySurfaceChanges(platform: Platform, layout: Layout, changes: readonly JournalSurfaceChange[]): Promise<void> {
-  for (const change of changes) {
+  for (const [index, change] of changes.entries()) {
     const path = surfacePath(layout, change);
     const existing = await readIfExists(path);
     if (change.action === "add") {
@@ -64,7 +78,12 @@ export async function applySurfaceChanges(platform: Platform, layout: Layout, ch
       await fs.mkdir(nodePath.dirname(path), { recursive: true });
       await platform.writeFileAtomic(path, Buffer.from(change.bytes, "base64"), { label: "surface" });
     } else if (existing !== undefined) {
-      if (sha256Hex(existing) !== change.digest) throw ambiguous("surface file to be removed holds different bytes; not touched", { path });
+      const digest = sha256Hex(existing);
+      if (digest !== change.digest) {
+        const replaced = changes.slice(index + 1).some((c) => c.action === "add" && c.path === change.path && c.digest === digest);
+        if (replaced) continue;
+        throw ambiguous("surface file to be removed holds different bytes; not touched", { path });
+      }
       await platform.removeFile(path, { label: "surface" });
     }
   }

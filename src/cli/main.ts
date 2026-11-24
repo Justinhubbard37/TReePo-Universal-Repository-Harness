@@ -4,7 +4,7 @@
 
 import * as nodePath from "node:path";
 import { fileURLToPath } from "node:url";
-import { activateAdapter, CONTINUITY_ID, grantAuthorization, installAdapter, revokeAuthorization, runWorkflowTransition } from "../adapters/index.ts";
+import { activateAdapter, CONTINUITY_ID, grantAuthorization, installAdapter, revokeAuthorization, runWorkflowTransition, updateAdapter } from "../adapters/index.ts";
 import { init, preflight, uninstall } from "../bootstrap/index.ts";
 import { loadAnchoredAuthz } from "../core/authz/index.ts";
 import type { CanonicalValue } from "../core/canon.ts";
@@ -12,7 +12,8 @@ import { isTreepoError, UsageError } from "../core/errors.ts";
 import { sha256Hex } from "../core/hash.ts";
 import { renderOrientation } from "../orient/index.ts";
 import { selectPlatform } from "../platform/index.ts";
-import { adapters, current, exportProject, hydrateProject, importProject, observe, openProject, orientProject, recover, refreshAgentEntry, routeIntent, routine, semantic, status } from "../harness/index.ts";
+import { adapters, current, enterProject, exportProject, hydrateProject, importProject, observe, openProject, orientProject, recover, refreshAgentEntry, routeIntent, routine, semantic, status } from "../harness/index.ts";
+import { discovery, guidedSetup } from "../harness/setup.ts";
 import { assertPinnedRuntime, PINNED_NODE_VERSION } from "./runtime-gate.ts";
 
 /** Version of the installable CLI; must equal package.json "version" (static package-surface test). */
@@ -65,6 +66,25 @@ commands:
   uninstall                       remove provably TReePo-owned material only
   adapter list                    distinct adapter states (available/installed/applicable/compatible/authorized/active)
   adapter install <id> --requester <label>
+  adapter update <id> --requester <label>
+                                  migrate a project set up by an earlier TReePo: one governed transition updates
+                                  the installed record, rewrites the workflow state in the current format and
+                                  raises the state epoch (earlier TReePo versions then refuse it instead of
+                                  rewriting it); position, next action and authorization are unchanged
+  setup --requester <label> [--grantor <human> --governance-statement <text>]
+        [--capabilities <name>[,<name>]|all --work-statement <text>] [--project <label>]
+                                  guided setup: initialize, install the workflow, record the human's separate
+                                  authorization of workflow capabilities, activate. Each act stays distinct and
+                                  needs its own statement; setup stops and says what is missing
+  discovery [--text]              read-only: can a fresh agent find TReePo from this repository's own
+                                  instruction files? prints the pointer a human may add (nothing is written)
+  enter --mode strategic|build --path keep|director|developer --requester <label>
+                                  fresh entry: record the Mode and Path the human chose for this chat; prints the
+                                  entry token to pass as --entry on every later governed command in this chat
+  mode --to strategic|build --entry <token> --requester <label>
+                                  the human changed Mode in this chat (applies to this chat only)
+  path --to director|developer --entry <token> --requester <label>
+                                  the human changed the project's Path; governed work continues from a fresh chat
   adapter activate <id> --capability <name>[,<name>] --requester <label>
   route --intent <text>           Router recommendation (confers no authorization)
   authorize list
@@ -72,20 +92,27 @@ commands:
   authorize revoke --grant <grantId> --grantor <label> --statement <text> --requester <label>
   orient [--text] [--write-entry] fresh-agent orientation from durable state only
   hydrate [--ttl-ms <n>]          full assurance, then a session token for the routine fast lane
-  objective --text <the human's objective> [--next <text>] --requester <label>
-  plan --workstream <label> [--purpose <text>] [--next <text>] --requester <label>
-  begin (--work <label> [--purpose <text>] | --workstream <planned id>) --next <text> --requester <label>
+  (every command below also takes --entry <token>, the token that "enter" printed for this chat)
+  objective --text <the human's objective> [--complete-when all-planned-work-done|none] [--next <text>] --requester <label>
+  plan --workstream <label> [--purpose <text>] [--after <workstream id>[,<id>]] [--next <text>] --requester <label>
+  begin (--work <label> [--purpose <text>] | --workstream <planned id>) [--directed-by <human>] --next <text> --requester <label>
   progress --done <id>[=<note>] [--done ...] --next <text> --requester <label> [--session <token>]
   checkpoint --label <text> [--next <text>] --requester <label> [--session <token>]
   pause --next <text> --requester <label>
   resume [--next <text>] --requester <label>
   handoff --to <label> [--next <text>] --requester <label>
-  complete --outcome <what was achieved> [--next <text>] --requester <label>
-  raise --kind question|proposal --title <text> [--why <text>] [--option <text> ...] [--recommend <text>]
-        [--next <text>] --requester <label>
+  complete --outcome <what was achieved> [--evidence <how it was verified> ...] [--next <text>] --requester <label>
+  raise --kind question|proposal|blocker --title <text> [--why <text>] [--option <text> ...] [--recommend <text>]
+        [--blocks <workstream id>[,<id>]] [--next <text>] --requester <label>
   decide (--item <id> | --question <text>) [--choice <text>] [--verdict accept|decline] --by <human label>
-         [--rationale <text>] [--revises <decision id>] [--next <text>] --requester <label>
-                                  record a decision the human made (proposals take --verdict)
+         [--rationale <text>] [--revises <decision id> [--created-work withdraw|keep]]
+         [--withdraw <workstream id>[,<id>]] [--designate-next <workstream id>] [--next <text>] --requester <label>
+                                  record a decision the human made (proposals take --verdict). Revising a decision
+                                  whose work is still planned or in progress must say what happens to that work
+  close [--confirmed-by <human>] [--summary <text>] --requester <label>
+                                  record project completion: the human's confirmation, or a completion condition
+                                  they authorized that is now met
+  reopen --by <human> --reason <text> --requester <label>
   semantic status|index|rebuild    local SQLite semantic memory (subordinate; never authoritative)
   semantic query --q <text> [--limit <n>]
   export --out <file>             write the complete authoritative state as one verified bundle
@@ -97,7 +124,12 @@ commands:
   version
 `;
 
-const WORKFLOW_ACTIONS = ["begin", "progress", "checkpoint", "pause", "resume", "handoff", "complete", "objective", "plan", "raise", "decide"] as const;
+const WORKFLOW_ACTIONS = ["begin", "progress", "checkpoint", "pause", "resume", "handoff", "complete", "objective", "plan", "raise", "decide", "mode", "path", "close", "reopen"] as const;
+
+function list(flags: Map<string, string | true>, name: string): string[] | undefined {
+  const v = text(flags, name);
+  return v === undefined ? undefined : v.split(",").filter((x) => x.length > 0);
+}
 
 function allValues(argv: readonly string[], name: string): string[] {
   const out: string[] = [];
@@ -120,8 +152,21 @@ function workflowInput(action: string, argv: readonly string[], flags: Map<strin
       if (workstream !== undefined) input["workstream"] = workstream;
       else input["work"] = required(flags, "work");
       optional(input, flags, "purpose", "purpose");
+      optional(input, flags, "directed-by", "directedBy");
       break;
     }
+    case "mode":
+    case "path":
+      input["to"] = required(flags, "to");
+      break;
+    case "close":
+      optional(input, flags, "confirmed-by", "confirmedBy");
+      optional(input, flags, "summary", "summary");
+      break;
+    case "reopen":
+      input["by"] = required(flags, "by");
+      input["reason"] = required(flags, "reason");
+      break;
     case "progress":
       input["completed"] = allValues(argv, "done").map((d) => {
         const eq = d.indexOf("=");
@@ -132,25 +177,37 @@ function workflowInput(action: string, argv: readonly string[], flags: Map<strin
       break;
     case "complete":
       input["outcome"] = required(flags, "outcome");
+      input["evidence"] = allValues(argv, "evidence");
       break;
     case "objective":
       input["objective"] = required(flags, "text");
+      optional(input, flags, "complete-when", "completeWhen");
       break;
-    case "plan":
+    case "plan": {
       input["workstream"] = required(flags, "workstream");
       optional(input, flags, "purpose", "purpose");
+      const after = list(flags, "after");
+      if (after !== undefined) input["after"] = after;
       break;
+    }
     case "raise":
       input["kind"] = required(flags, "kind");
       input["title"] = required(flags, "title");
       optional(input, flags, "why", "why");
       optional(input, flags, "recommend", "recommendation");
       input["options"] = allValues(argv, "option");
+      {
+        const blocks = list(flags, "blocks");
+        if (blocks !== undefined) input["blocks"] = blocks;
+      }
       break;
-    case "decide":
+    case "decide": {
       input["decidedBy"] = required(flags, "by");
-      for (const [flag, key] of [["item", "item"], ["question", "question"], ["choice", "choice"], ["verdict", "verdict"], ["rationale", "rationale"], ["revises", "revises"]] as const) optional(input, flags, flag, key);
+      for (const [flag, key] of [["item", "item"], ["question", "question"], ["choice", "choice"], ["verdict", "verdict"], ["rationale", "rationale"], ["revises", "revises"], ["created-work", "createdWork"], ["designate-next", "next"]] as const) optional(input, flags, flag, key);
+      const withdraws = list(flags, "withdraw");
+      if (withdraws !== undefined) input["withdraws"] = withdraws;
       break;
+    }
     case "checkpoint":
       input["label"] = required(flags, "label");
       break;
@@ -258,6 +315,14 @@ export async function run(argv: readonly string[], io: CliIo): Promise<number> {
           json(result);
           return 0;
         }
+        if (sub === "update" && id !== undefined) {
+          const state = await current(project);
+          const facts = await observe(project);
+          const outcome = await updateAdapter(project, { adapterId: id, requester: required(flags, "requester"), expectedPredecessorId: state.current.id, expectedWorkingCopy: facts.workingCopy });
+          await refreshAgentEntry(project);
+          json(outcome);
+          return 0;
+        }
         if (sub === "activate" && id !== undefined) {
           const state = await current(project);
           const facts = await observe(project);
@@ -268,6 +333,43 @@ export async function run(argv: readonly string[], io: CliIo): Promise<number> {
         }
         io.err(USAGE);
         return 2;
+      }
+      case "setup": {
+        const r = await guidedSetup(selectPlatform(), io.cwd, {
+          requester: required(flags, "requester"),
+          ...(text(flags, "grantor") === undefined ? {} : { grantor: text(flags, "grantor")! }),
+          ...(text(flags, "governance-statement") === undefined ? {} : { governanceStatement: text(flags, "governance-statement")! }),
+          ...(text(flags, "work-statement") === undefined ? {} : { workStatement: text(flags, "work-statement")! }),
+          ...(list(flags, "capabilities") === undefined ? {} : { capabilities: list(flags, "capabilities")! }),
+          ...(text(flags, "project") === undefined ? {} : { projectLabel: text(flags, "project")! }),
+        });
+        try {
+          await refreshAgentEntry(await openProject(io.cwd));
+        } catch (error) {
+          if (!isTreepoError(error)) throw error;
+        }
+        json(r);
+        return r.complete ? 0 : 1;
+      }
+      case "discovery": {
+        const project = await openProject(io.cwd);
+        const d = await discovery(project);
+        if (flags.get("text") === true) io.out(`${d.pointer}\n${d.note}\n`);
+        else json(d);
+        return 0;
+      }
+      case "enter": {
+        const project = await openProject(io.cwd);
+        const entered = await enterProject(project, { mode: required(flags, "mode") as "strategic" | "build", path: required(flags, "path") as "keep" | "director" | "developer", requester: required(flags, "requester") });
+        await refreshAgentEntry(project);
+        json({
+          entry: entered.token,
+          note: "Pass this token as --entry <token> on every governed command in this chat. It is not stored in the project; a fresh chat enters again.",
+          result: entered.outcome.result,
+          nextAction: entered.outcome.plan.nextAction,
+          position: entered.outcome.plan.position,
+        });
+        return 0;
       }
       case "route": {
         const project = await openProject(io.cwd);
@@ -321,8 +423,13 @@ export async function run(argv: readonly string[], io: CliIo): Promise<number> {
       case "objective":
       case "plan":
       case "raise":
-      case "decide": {
-        const project = await openProject(io.cwd);
+      case "decide":
+      case "mode":
+      case "path":
+      case "close":
+      case "reopen": {
+        const entry = text(flags, "entry");
+        const project = await openProject(io.cwd, entry === undefined ? {} : { session: entry });
         const action = command as (typeof WORKFLOW_ACTIONS)[number];
         const session = text(flags, "session");
         if (session !== undefined) {

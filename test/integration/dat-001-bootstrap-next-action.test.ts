@@ -28,8 +28,8 @@ const BOOTSTRAP = {
   description: "Intake complete. Select and activate a workflow adapter through the Router before governed work begins.",
   prerequisites: [] as string[],
 };
-const ALL_CAPS = "orient,begin,progress,checkpoint,pause,handoff,resume";
-const CONSEQUENTIAL_CAPS = "begin,progress,checkpoint,pause,handoff,resume";
+const ALL_CAPS = "orient,session,begin,progress,checkpoint,pause,handoff,resume";
+const CONSEQUENTIAL_CAPS = "session,begin,progress,checkpoint,pause,handoff,resume";
 
 interface NextAction {
   id: string;
@@ -68,6 +68,15 @@ async function ok(cwd: string, ...args: string[]): Promise<unknown> {
   const r = await treepo(cwd, ...args);
   assert.equal(r.code, 0, `treepo ${args.join(" ")} failed: ${r.stdout}`);
   return r.json;
+}
+
+/** A fresh chat: the human authorizes and activates the operating-choice capability, then Mode and Path are selected. Returns the entry token. */
+async function enterCli(root: string, alreadyGranted = false): Promise<string> {
+  if (!alreadyGranted) {
+    await ok(root, "authorize", "grant", "--adapter", "treepo.workflow.continuity", "--capability", "session", "--grantor", "Human", "--statement", "the agent may record Mode and Path", "--requester", "human");
+    await ok(root, "adapter", "activate", "treepo.workflow.continuity", "--capability", "session", "--requester", "human");
+  }
+  return ((await ok(root, "enter", "--mode", "build", "--path", "developer", "--requester", "human")) as { entry: string }).entry;
 }
 
 function withoutLiveCount(text: string): string {
@@ -189,11 +198,12 @@ describe("DAT-001: bootstrap next action after workflow activation (shipped CLI)
       await observeFresh(root, { writeEntry: true });
 
       // G. begin establishes the supplied workflow next action.
-      const begun = (await ok(root, "begin", "--work", "DAT-001 trial work", "--next", "draft the first section", "--requester", "agent")) as { nextAction: NextAction };
+      const entry = await enterCli(root, true);
+      const begun = (await ok(root, "begin", "--work", "DAT-001 trial work", "--next", "draft the first section", "--requester", "agent", "--entry", entry)) as { nextAction: NextAction };
       assert.equal(begun.nextAction.description, "draft the first section");
       const g = await observeFresh(root);
-      assert.equal(g.seq, 4);
-      assert.deepEqual(g.nextAction, { id: "na-4", description: "draft the first section", prerequisites: [] });
+      assert.equal(g.seq, 5, "init, install, grant, activate, enter, begin");
+      assert.deepEqual(g.nextAction, { id: "na-5", description: "draft the first section", prerequisites: [] });
       assert.equal(g.position.label, "active");
       assert.equal(g.position.detail, "DAT-001 trial work");
     });
@@ -272,7 +282,8 @@ describe("DAT-001: bootstrap next action after workflow activation (shipped CLI)
       await ok(root, "adapter", "install", CONTINUITY, "--requester", "human");
       await ok(root, "authorize", "grant", "--adapter", CONTINUITY, "--capability", "begin", "--grantor", "Human", "--statement", "begin ok", "--requester", "human");
       await ok(root, "adapter", "activate", CONTINUITY, "--capability", "orient,begin", "--requester", "human");
-      await ok(root, "begin", "--work", "unrelated work", "--next", "ship the unrelated thing", "--requester", "agent");
+      const entry = await enterCli(root);
+      await ok(root, "begin", "--work", "unrelated work", "--next", "ship the unrelated thing", "--requester", "agent", "--entry", entry);
       const recorded = (await observeFresh(root)).nextAction;
       assert.equal(recorded.description, "ship the unrelated thing");
 
@@ -291,7 +302,7 @@ describe("DAT-001: bootstrap next action after workflow activation (shipped CLI)
 
       // Normal workflow semantics are untouched: checkpoint without --next still carries the recorded action.
       await ok(root, "authorize", "grant", "--adapter", CONTINUITY, "--capability", "checkpoint", "--grantor", "Human", "--statement", "cp", "--requester", "human");
-      await ok(root, "checkpoint", "--label", "cp1", "--requester", "agent");
+      await ok(root, "checkpoint", "--label", "cp1", "--requester", "agent", "--entry", entry);
       assert.deepEqual((await observeFresh(root)).nextAction, recorded);
     });
   });

@@ -11,7 +11,7 @@ import { journalDir, listJournals, lockFile } from "../../src/core/tx/index.ts";
 import { capabilityFile, computeVerifier, evaluateEligibility, fingerprintOf, parseToken, readCapability, ROUTINE_ACTIONS } from "../../src/hydration/index.ts";
 import { hydrateProject, observe, openProject, routine, type Project } from "../../src/harness/index.ts";
 import { selectPlatform } from "../../src/platform/index.ts";
-import { prepared, projectWith } from "../helpers/adapter-fixture.ts";
+import { enter, prepared, projectWith } from "../helpers/adapter-fixture.ts";
 import { createGitRepo, type GitRepo } from "../helpers/git-fixture.ts";
 import { withTempDir } from "../helpers/tmpdir.ts";
 import { failAt } from "../helpers/tx-fixture.ts";
@@ -19,8 +19,9 @@ import { failAt } from "../helpers/tx-fixture.ts";
 async function activeProject(dir: string): Promise<{ repo: GitRepo; project: Project }> {
   const { repo, project } = await projectWith(dir, []);
   await installAdapter(project, { adapterId: CONTINUITY_ID, requester: "h", ...(await prepared(project)) });
-  await grantAuthorization(project, { scope: { adapterId: CONTINUITY_ID, capabilities: ["begin", "progress", "checkpoint", "pause"] }, grantor: "H", statement: "ok", requester: "h", ...(await prepared(project)) });
-  await activateAdapter(project, { adapterId: CONTINUITY_ID, capabilities: ["orient", "begin", "progress", "checkpoint", "pause"], requester: "h", ...(await prepared(project)) });
+  await grantAuthorization(project, { scope: { adapterId: CONTINUITY_ID, capabilities: ["session", "begin", "progress", "checkpoint", "pause"] }, grantor: "H", statement: "ok", requester: "h", ...(await prepared(project)) });
+  await activateAdapter(project, { adapterId: CONTINUITY_ID, capabilities: ["orient", "session", "begin", "progress", "checkpoint", "pause"], requester: "h", ...(await prepared(project)) });
+  await enter(project);
   await runWorkflowTransition(project, { adapterId: CONTINUITY_ID, action: "begin", input: { work: "w", nextAction: "n1" }, requester: "a", ...(await prepared(project)) });
   return { repo, project };
 }
@@ -272,7 +273,7 @@ describe("hydration and the ROUTINE_DELTA fast lane", () => {
     await withTempDir(async (dir) => {
       const { project } = await activeProject(dir);
       const h = await hydrateProject(project);
-      const faulty = await openProject(project.layout.root, { faults: failAt("rename:CURRENT") });
+      const faulty = await openProject(project.layout.root, { faults: failAt("rename:CURRENT"), ...(project.session === undefined ? {} : { session: project.session }) });
       await assert.rejects(routine(faulty, { adapterId: CONTINUITY_ID, action: "progress", input: progressInput(), requester: "a", token: h.token }), (e: unknown) => errorCode(e) === "INJECTED_FAULT");
       assert.equal((await readCapability(project.layout)).status, "absent", "no successor-bound capability after a failed publication");
       // Simulated crash: clear the lock, recover (rolls forward the staged successor), then the old token is useless.

@@ -43,8 +43,20 @@ describe("concurrent writers", () => {
       const go = path.join(dir, "go");
       const a = runChild(["publish", dir, go, "writer-a"]);
       const b = runChild(["publish", dir, go, "writer-b"]);
-      // Let both children load and observe the predecessor, then release them simultaneously.
-      await new Promise((r) => setTimeout(r, 400));
+      // Wait until both children report that they have loaded and observed the predecessor (no fixed delay:
+      // under load a child can take longer than any chosen sleep), then release them simultaneously.
+      const deadline = Date.now() + 60_000;
+      for (const name of ["writer-a", "writer-b"]) {
+        for (;;) {
+          try {
+            await fs.access(`${go}.ready-${name}`);
+            break;
+          } catch {
+            assert.ok(Date.now() < deadline, `${name} did not become ready`);
+            await new Promise((r) => setTimeout(r, 5));
+          }
+        }
+      }
       await fs.writeFile(go, "go");
       const [ra, rb] = await Promise.all([a, b]);
       const published = [ra, rb].filter((r) => r.status === "published");

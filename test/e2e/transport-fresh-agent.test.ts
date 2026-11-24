@@ -14,7 +14,7 @@ import { fileURLToPath } from "node:url";
 import { activateAdapter, CONTINUITY_ID, grantAuthorization, installAdapter, runWorkflowTransition } from "../../src/adapters/index.ts";
 import { sha256Hex } from "../../src/core/hash.ts";
 import { current, hydrateProject, openProject, semantic } from "../../src/harness/index.ts";
-import { prepared, projectWith } from "../helpers/adapter-fixture.ts";
+import { enter, prepared, projectWith } from "../helpers/adapter-fixture.ts";
 import { exists, withTempDir } from "../helpers/tmpdir.ts";
 import { cloneRepo, removeWithRetry } from "../helpers/transport-fixture.ts";
 
@@ -49,8 +49,9 @@ describe("transport with a fresh agent on another working copy (Acceptance L.2 w
       // --- Agent A in the origin working copy ---------------------------------------------------------
       const { repo, project } = await projectWith(path.join(dir, "origin-parent"), []);
       await installAdapter(project, { adapterId: CONTINUITY_ID, requester: "human", ...(await prepared(project)) });
-      await grantAuthorization(project, { scope: { adapterId: CONTINUITY_ID, capabilities: ["begin", "progress", "checkpoint", "pause"] }, grantor: "Human Owner", statement: "Agent A may begin, record progress, checkpoint and pause.", requester: "human", ...(await prepared(project)) });
-      await activateAdapter(project, { adapterId: CONTINUITY_ID, capabilities: ["orient", "begin", "progress", "checkpoint", "pause"], requester: "human", ...(await prepared(project)) });
+      await grantAuthorization(project, { scope: { adapterId: CONTINUITY_ID, capabilities: ["session", "begin", "progress", "checkpoint", "pause"] }, grantor: "Human Owner", statement: "Agent A may begin, record progress, checkpoint and pause.", requester: "human", ...(await prepared(project)) });
+      await activateAdapter(project, { adapterId: CONTINUITY_ID, capabilities: ["orient", "session", "begin", "progress", "checkpoint", "pause"], requester: "human", ...(await prepared(project)) });
+      await enter(project);
       await runWorkflowTransition(project, { adapterId: CONTINUITY_ID, action: "begin", input: { work: "feature X", nextAction: "implement step 1: write the parser" }, requester: "agent-a", ...(await prepared(project)) });
       await repo.write("src/parser.txt", "parser v1\n");
       await repo.git(["add", "--", "src/parser.txt"]);
@@ -93,7 +94,7 @@ describe("transport with a fresh agent on another working copy (Acceptance L.2 w
       assert.deepEqual(o.position, { label: "paused", detail: "feature X" });
       assert.deepEqual(o.completed.map((c) => c.id), ["step-1-parser"]);
       assert.equal(o.workflow.state.lifecycle, "paused");
-      assert.deepEqual(o.authorizedNow.map((a) => a.capability).sort(), ["begin", "checkpoint", "pause", "progress"], "authority constraints travelled: resume is not authorized");
+      assert.deepEqual(o.authorizedNow.map((a) => a.capability).sort(), ["begin", "checkpoint", "pause", "progress", "session"], "authority constraints travelled: resume is not authorized");
 
       const semanticStatus = await run(BIN, ["semantic", "status"], recv.root);
       assert.equal(semanticStatus.code, 0);
@@ -106,11 +107,17 @@ describe("transport with a fresh agent on another working copy (Acceptance L.2 w
       assert.equal(b.json["ok"], true, JSON.stringify(b.json));
       assert.deepEqual(b.json["env"], [], "no session/chat environment reached Agent B");
       assert.equal(b.json["stateId"], paused.current.id);
+      const before = b.json["attemptsWithoutEntry"] as Record<string, string>;
+      assert.deepEqual(before, { resume: "ENTRY_REQUIRED", begin: "ENTRY_REQUIRED", redo: "ENTRY_REQUIRED" }, "a fresh chat can do no governed work before Mode and Path are selected");
+      assert.equal(b.json["unchangedAfterEntrylessAttempts"], true, "those refusals mutated nothing");
+      assert.equal(b.json["entered"], "published", "B's fresh entry (Build, keep Path) is recorded");
+      assert.deepEqual(b.json["positionAfterEntry"], b.json["position"], "entering preserved the position");
+      assert.deepEqual(b.json["nextActionAfterEntry"], b.json["nextAction"], "entering preserved the exact next action");
       const attempts = b.json["attempts"] as Record<string, string>;
       assert.equal(attempts["resume"], "ADAPTER_NOT_ACTIVE", "B does not invent approval on the receiving copy");
       assert.equal(attempts["begin"], "WORKFLOW_POLICY", "B does not restart completed work");
       assert.equal(attempts["redo"], "WORKFLOW_POLICY");
-      assert.equal((await current(rp)).current.id, paused.current.id, "refused attempts changed nothing");
+      assert.equal(b.json["entryIsTheOnlyChange"], true, "apart from the recorded entry, refused attempts changed nothing");
 
       // --- a human on the receiving copy authorizes resume; B continues exactly -----------------------
       await grantAuthorization(rp, { scope: { adapterId: CONTINUITY_ID, capabilities: ["resume"] }, grantor: "Human Owner", statement: "Agent B may resume from the recorded next action.", requester: "human", ...(await prepared(rp)) });

@@ -31,6 +31,8 @@ export interface WorkflowRequest {
    * transaction, declared-capability, active and authority checks always run.
    */
   readonly skipAdapterRediscovery?: boolean;
+  /** Opaque token the caller presents (for example a chat's entry token). Overrides the environment's. */
+  readonly session?: string;
   readonly observer?: (step: ActivationLayer | PublishPhase) => void;
 }
 
@@ -44,6 +46,8 @@ interface Env {
   readonly platform: Platform;
   readonly layout: Layout;
   readonly registry: Registry;
+  /** Token presented with every workflow request made through this environment, unless the request carries its own. */
+  readonly session?: string;
 }
 
 export async function runWorkflowTransition(env: Env, request: WorkflowRequest): Promise<WorkflowOutcome> {
@@ -62,8 +66,20 @@ export async function runWorkflowTransition(env: Env, request: WorkflowRequest):
     throw new ContinuityError({ code: "ADAPTER_NOT_WORKFLOW", message: `adapter ${request.adapterId} is not a workflow adapter`, details: { adapterId: request.adapterId } });
   }
 
+  // An adapter whose namespace needs a later state schema epoch than this project has reached is never run:
+  // the explicit adapter update raises the epoch first (this also holds on the routine fast lane).
+  const minSchema = impl.manifest.minStateSchema ?? 1;
+  if (state.current.object.schemaVersion < minSchema) {
+    throw new ContinuityError({
+      code: "ADAPTER_UPDATE_REQUIRED",
+      message: `adapter ${request.adapterId} needs state schema epoch ${minSchema} but this project is at epoch ${state.current.object.schemaVersion}; run \`treepo adapter update ${request.adapterId} --requester <label>\` first`,
+      details: { adapterId: request.adapterId, required: minSchema, current: state.current.object.schemaVersion },
+    });
+  }
+  const session = request.session ?? env.session;
+
   // The adapter decides meaning and policy; it may reject, it may not validate anything for the core.
-  const planned = impl.planTransition(request.action, { state, facts }, request.input);
+  const planned = impl.planTransition(request.action, session === undefined ? { state, facts } : { state, facts, session }, request.input);
   if (!planned.ok) {
     throw new ContinuityError({ code: planned.code, message: `${request.adapterId}: ${planned.reason}`, details: { adapterId: request.adapterId, action: request.action } });
   }
@@ -88,7 +104,16 @@ export async function runWorkflowTransition(env: Env, request: WorkflowRequest):
   }
 
   note("8:core-transition");
-  const requestDigest = digestOf({ kind: "workflow", adapterId: request.adapterId, action: request.action, input: request.input, requester: request.requester, predecessorId: request.expectedPredecessorId });
+  // Only a digest of the presented token enters the request identity; the token itself is never recorded.
+  const requestDigest = digestOf({
+    kind: "workflow",
+    adapterId: request.adapterId,
+    action: request.action,
+    input: request.input,
+    requester: request.requester,
+    predecessorId: request.expectedPredecessorId,
+    ...(session === undefined ? {} : { session: digestOf({ token: session }) }),
+  });
   const result = await publishTransition(env.platform, env.layout, {
     expectedPredecessorId: request.expectedPredecessorId,
     expectedWorkingCopy: request.expectedWorkingCopy,

@@ -117,9 +117,11 @@ describe("semantic isolation: loss, corruption, lock, authority, fresh agent, ta
       assert.equal(b["ok"], true);
       assert.equal(b["stateId"], id);
       await fs.writeFile(semanticDbPath(project.layout), randomBytes(2048));
+      // The first Agent B recorded its own fresh entry (Mode and Path); the second B orients on that state.
+      const idAfterFirstEntry = (await current(project)).current.id;
       b = await agentB(repo.root);
       assert.equal(b["ok"], true);
-      assert.equal(b["stateId"], id);
+      assert.equal(b["stateId"], idAfterFirstEntry);
       assert.deepEqual(b["completed"], ["tokenizer"]);
     });
   });

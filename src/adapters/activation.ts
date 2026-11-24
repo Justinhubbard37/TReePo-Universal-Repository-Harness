@@ -23,7 +23,7 @@ import { buildSuccessor } from "../core/state/successor.ts";
 import { requireValidState, type ValidatedState } from "../core/state/validate.ts";
 import { publishTransition, type PublishPhase, type PublishResult } from "../core/tx/publish.ts";
 import type { Platform } from "../platform/index.ts";
-import { ACTIVATION_NAMESPACE, ADAPTER_API, activationOf, CORE_API, type AdapterImplementation, type Consequence } from "./api.ts";
+import { ACTIVATION_NAMESPACE, ADAPTER_API, activationOf, CORE_API, isWorkflowAdapter, type AdapterImplementation, type Consequence, type MigrationResult } from "./api.ts";
 import { preWorkNextAction } from "./readiness.ts";
 import { observeRepository, type RepositoryFacts } from "./repo/git/index.ts";
 import { checkApplicability, encodeInstalledRecord, installedRecordPath, isCompatible, readInstalledRecords, type Registry } from "./registry.ts";
@@ -73,7 +73,10 @@ export async function resolveInstalledAdapter(env: Env, adapterId: string, note:
   if (installed === undefined) fail("ADAPTER_NOT_INSTALLED", `adapter ${adapterId} is available but not installed for this project`, { adapterId });
   note("3:compatible");
   const compat = isCompatible(impl.manifest, installed);
-  if (!compat.ok) fail("ADAPTER_INCOMPATIBLE", `adapter ${adapterId}: ${compat.reason}`, { adapterId, reason: compat.reason });
+  if (!compat.ok) {
+    const older = compareVersions(installed.version, impl.manifest.version) < 0;
+    fail("ADAPTER_INCOMPATIBLE", `adapter ${adapterId}: ${compat.reason}${older ? `; this project was set up by an earlier TReePo. Run \`treepo adapter update ${adapterId} --requester <label>\` to migrate it explicitly before governed work continues` : ""}`, { adapterId, reason: compat.reason, updateAvailable: older });
+  }
   note("4:environment-prerequisites");
   const applicable = checkApplicability(impl.manifest, facts, state);
   if (!applicable.ok) fail("PREREQUISITE_UNMET", `adapter ${adapterId}: ${applicable.reasons.join("; ")}`, { adapterId, reasons: applicable.reasons });
@@ -187,7 +190,94 @@ export async function installAdapter(env: Env, request: InstallRequest): Promise
         surfaceDigests: ctx.surfaceDigests,
         nextAction: preWorkNextAction({ registry: env.registry, predecessor: pred, activation: activationOf(pred), installed: [...installed, impl.manifest.id], authz, successorSeq: pred.seq + 1 }),
         position: pred.core.position,
+        // The adapter's namespace may only be written from its minimum state schema epoch onward.
+        ...(impl.manifest.minStateSchema === undefined ? {} : { raiseSchemaVersion: impl.manifest.minStateSchema }),
       });
     },
   });
+}
+
+/** Numeric comparison of dotted versions ("1.0.0" < "2.0.0"); non-numeric parts compare as 0. */
+export function compareVersions(a: string, b: string): number {
+  const pa = a.split(".").map((x) => Number.parseInt(x, 10) || 0);
+  const pb = b.split(".").map((x) => Number.parseInt(x, 10) || 0);
+  for (let i = 0; i < Math.max(pa.length, pb.length); i += 1) {
+    const d = (pa[i] ?? 0) - (pb[i] ?? 0);
+    if (d !== 0) return d < 0 ? -1 : 1;
+  }
+  return 0;
+}
+
+export interface UpdateRequest {
+  readonly adapterId: string;
+  readonly requester: string;
+  readonly expectedPredecessorId: string;
+  readonly expectedWorkingCopy: WorkingCopyFacts;
+}
+
+export interface UpdateOutcome {
+  readonly result: PublishResult;
+  readonly fromVersion: string;
+  readonly toVersion: string;
+  readonly fromStateSchema: number;
+  readonly toStateSchema: number;
+  readonly migration: MigrationResult | null;
+}
+
+/**
+ * The explicit, governed migration of a project that an earlier TReePo set up. One transition replaces the
+ * installed record with the current adapter version, rewrites the adapter's namespace in its current format
+ * (the adapter derives it from the validated lineage), and raises the state schema epoch to the adapter's
+ * minimum. Position, exact next action, accepted and completed items, activation and authorization are carried
+ * unchanged, and the update confers no authority. After it, implementations that predate the epoch reject the
+ * state instead of rewriting it, so they cannot silently discard what they do not understand.
+ */
+export async function updateAdapter(env: Env, request: UpdateRequest): Promise<UpdateOutcome> {
+  const state = await requireValidState(env.layout);
+  const impl = env.registry.find(request.adapterId);
+  if (impl === undefined) fail("ADAPTER_UNAVAILABLE", `adapter ${request.adapterId} is not available in this core`, { adapterId: request.adapterId });
+  const apiCompat = isCompatible(impl.manifest);
+  if (!apiCompat.ok) fail("ADAPTER_INCOMPATIBLE", `adapter ${request.adapterId}: ${apiCompat.reason}`, { adapterId: request.adapterId });
+  const installed = (await readInstalledRecords(env.layout)).find((r) => r.id === request.adapterId);
+  if (installed === undefined) fail("ADAPTER_NOT_INSTALLED", `adapter ${request.adapterId} is available but not installed for this project`, { adapterId: request.adapterId });
+  if (installed.adapterApi !== ADAPTER_API || installed.coreApi !== CORE_API) fail("ADAPTER_INCOMPATIBLE", `adapter ${request.adapterId}: installed record targets adapterApi ${installed.adapterApi}/coreApi ${installed.coreApi}`, { adapterId: request.adapterId });
+  const order = compareVersions(installed.version, impl.manifest.version);
+  if (order > 0) fail("ADAPTER_INCOMPATIBLE", `adapter ${request.adapterId}: this project records version ${installed.version}, newer than this TReePo provides (${impl.manifest.version}); it is never downgraded`, { adapterId: request.adapterId, installed: installed.version, available: impl.manifest.version });
+  const fromSchema = state.current.object.schemaVersion;
+  const minSchema = impl.manifest.minStateSchema ?? fromSchema;
+  if (order === 0 && fromSchema >= minSchema) fail("ADAPTER_UP_TO_DATE", `adapter ${request.adapterId} is already at version ${impl.manifest.version}; nothing to update`, { adapterId: request.adapterId, version: installed.version });
+  const facts = await observeRepository(env.platform, env.layout.root);
+  let migration: MigrationResult | null = null;
+  if (isWorkflowAdapter(impl) && impl.migrateState !== undefined && state.current.object.adapter[request.adapterId] !== undefined) {
+    try {
+      migration = impl.migrateState({ state, facts });
+    } catch (cause) {
+      throw new ContinuityError({ code: "ADAPTER_FAILURE", message: `adapter ${request.adapterId} failed while migrating its recorded state; nothing was changed`, details: { adapterId: request.adapterId }, cause });
+    }
+  }
+  const record = { adapterApi: ADAPTER_API, coreApi: CORE_API, id: impl.manifest.id, version: impl.manifest.version, installedAtSeq: installed.installedAtSeq };
+  const path = installedRecordPath(impl.manifest.id);
+  const requestDigest = digestOf({ kind: "adapter.update", adapterId: request.adapterId, from: installed.version, to: impl.manifest.version, requester: request.requester, predecessorId: request.expectedPredecessorId });
+  const result = await publishTransition(env.platform, env.layout, {
+    expectedPredecessorId: request.expectedPredecessorId,
+    expectedWorkingCopy: request.expectedWorkingCopy,
+    requestDigest,
+    observeWorkingCopy: async () => (await observeRepository(env.platform, env.layout.root)).workingCopy,
+    surfaceChanges: order === 0 ? [] : [{ path, action: "remove", bytes: encodeInstalledRecord(installed) }, { path, action: "add", bytes: encodeInstalledRecord(record) }],
+    build: (ctx) => {
+      requireSamePredecessor(state.current.id, ctx.predecessor.id);
+      const pred = ctx.predecessor.object;
+      return buildSuccessor({
+        predecessor: ctx.predecessor,
+        transition: { name: "adapter.update", requestDigest: ctx.requestDigest, requester: request.requester, authzRefs: [], supersedes: [] },
+        repoFacts: { workingCopy: ctx.workingCopy },
+        surfaceDigests: ctx.surfaceDigests,
+        nextAction: pred.core.nextAction,
+        position: pred.core.position,
+        ...(migration === null ? {} : { adapter: { [request.adapterId]: migration.adapterState } }),
+        raiseSchemaVersion: minSchema,
+      });
+    },
+  });
+  return { result, fromVersion: installed.version, toVersion: impl.manifest.version, fromStateSchema: fromSchema, toStateSchema: Math.max(fromSchema, minSchema), migration };
 }

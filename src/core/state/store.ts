@@ -16,6 +16,7 @@ import { sha256Hex } from "../hash.ts";
 import type { Platform } from "../../platform/index.ts";
 import { decodeCurrent, encodeCurrent, type CurrentPointer } from "./current.ts";
 import { objectFile, type Layout } from "./layout.ts";
+import { readAuthoritativeFile } from "./surface.ts";
 import { assertStateObjectShape, type StateObject } from "./schema.ts";
 
 export const OBJECT_FILE_NAME = /^([0-9a-f]{64})\.json$/;
@@ -129,15 +130,21 @@ export async function writeObject(platform: Platform, layout: Layout, object: St
   return { id, created: true };
 }
 
+/**
+ * Read the CURRENT pointer under the same no-follow policy as every other authoritative file (R-01, IR-04): a
+ * symbolic link, junction or other non-regular entry standing in for CURRENT is refused as
+ * AUTHORITATIVE_ENTRY_UNSUPPORTED, never followed, so validation, governed transitions and export agree.
+ */
 export async function readCurrent(layout: Layout): Promise<CurrentPointer> {
-  let bytes: Uint8Array;
+  let bytes: Uint8Array | undefined;
   try {
-    bytes = await fs.readFile(layout.currentFile);
+    bytes = await readAuthoritativeFile(layout.currentFile);
   } catch (cause) {
-    if ((cause as { code?: unknown }).code === "ENOENT") {
-      throw new ContinuityError({ code: "CURRENT_MISSING", message: `CURRENT pointer missing at ${layout.currentFile}`, details: { path: layout.currentFile } });
-    }
+    if (cause instanceof ContinuityError) throw cause;
     throw new ContinuityError({ code: "CURRENT_UNREADABLE", message: "CURRENT pointer unreadable", details: { path: layout.currentFile }, cause });
+  }
+  if (bytes === undefined) {
+    throw new ContinuityError({ code: "CURRENT_MISSING", message: `CURRENT pointer missing at ${layout.currentFile}`, details: { path: layout.currentFile } });
   }
   return decodeCurrent(bytes);
 }

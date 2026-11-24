@@ -71,6 +71,15 @@ async function ok(cwd: string, ...args: string[]): Promise<unknown> {
   return r.json;
 }
 
+/** A fresh chat: the human authorizes and activates the operating-choice capability, then Mode and Path are selected. Returns the entry token. */
+async function enterCli(root: string, alreadyGranted = false): Promise<string> {
+  if (!alreadyGranted) {
+    await ok(root, "authorize", "grant", "--adapter", "treepo.workflow.continuity", "--capability", "session", "--grantor", "Human", "--statement", "the agent may record Mode and Path", "--requester", "human");
+    await ok(root, "adapter", "activate", "treepo.workflow.continuity", "--capability", "session", "--requester", "human");
+  }
+  return ((await ok(root, "enter", "--mode", "build", "--path", "developer", "--requester", "human")) as { entry: string }).entry;
+}
+
 const withoutLiveCount = (t: string): string =>
   t
     .split("\n")
@@ -230,7 +239,8 @@ describe("DAT-001 installed-but-zero-active workflow readiness (shipped CLI)", (
       await ok(root, "adapter", "install", C, "--requester", "human");
       await ok(root, "authorize", "grant", "--adapter", C, "--capability", "begin,progress", "--grantor", "Human", "--statement", "work", "--requester", "human");
       await ok(root, "adapter", "activate", C, "--capability", "orient,begin", "--requester", "human");
-      await ok(root, "begin", "--work", "install-only work", "--next", "write the first section", "--requester", "agent");
+      const entry = await enterCli(root);
+      await ok(root, "begin", "--work", "install-only work", "--next", "write the first section", "--requester", "agent", "--entry", entry);
       const f = await observeFresh(root);
       assert.deepEqual(f.nextAction, { id: `na-${f.seq}`, description: "write the first section", prerequisites: [] });
       assert.deepEqual(f.position, { label: "active", detail: "install-only work" });

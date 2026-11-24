@@ -65,10 +65,17 @@ const b = before.json;
 const summary = (o) => ({ stateId: o.stateId, seq: o.seq, nextAction: o.nextAction, position: o.position, completed: o.completed.map((c) => c.id) });
 if (!b.authorizedNow.some((a) => a.capability === "progress")) report("STOP", { reason: "progress is not authorized", resolved, before: summary(b) }, 7);
 
-// 5. Having done the work named by the exact next action, publish its successor through TReePo before anything later.
-const transition = run("progress", "--done", `${b.nextAction.id}=done by a fresh external agent`, "--next", "review the external agent result", "--requester", "fresh-agent");
+// 5. Fresh entry. The orientation says Mode and Path must be selected with the human before governed work. This
+//    stand-in has no human: the choices a human would give it are fixed here (Build; keep the project's Path, or
+//    Developer/Engineer when none exists yet). It never reuses another chat's entry.
+const keepPath = b.project?.data?.entry?.currentPath != null;
+const entered = run("enter", "--mode", "build", "--path", keepPath ? "keep" : "developer", "--requester", "fresh-agent");
+if (entered.code !== 0 || typeof entered.json?.entry !== "string") report("STOP", { reason: "fresh entry refused", resolved, before: summary(b), entered: entered.json }, 9);
+
+// 6. Having done the work named by the exact next action, publish its successor through TReePo before anything later.
+const transition = run("progress", "--done", `${b.nextAction.id}=done by a fresh external agent`, "--next", "review the external agent result", "--requester", "fresh-agent", "--entry", entered.json.entry);
 if (transition.code !== 0) report("STOP", { reason: "transition refused", resolved, before: summary(b), transition: transition.json }, 8);
 
-// 6. Observe the resulting authoritative successor.
+// 7. Observe the resulting authoritative successor.
 const after = run("orient");
 report("CONTINUED", { command, resolved, version: version.json, before: summary(b), transition: transition.json, after: summary(after.json) }, 0);

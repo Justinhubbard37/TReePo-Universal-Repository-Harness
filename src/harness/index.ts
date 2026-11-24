@@ -10,7 +10,8 @@ import type { StateObject, WorkingCopyFacts } from "../core/state/schema.ts";
 import type { SurfaceDelta } from "../core/state/surface.ts";
 import { requireValidState, validateAuthoritativeState, type ValidatedState, type ValidationReport } from "../core/state/validate.ts";
 import { loadAnchoredAuthz } from "../core/authz/index.ts";
-import { adapterStatuses, createRegistry, readInstalledRecords, route, type AdapterImplementation, type AdapterStatus, type Registry, type RouteResult } from "../adapters/index.ts";
+import { randomBytes } from "node:crypto";
+import { adapterStatuses, CONTINUITY_ID, createRegistry, readInstalledRecords, route, runWorkflowTransition, type AdapterImplementation, type AdapterStatus, type Registry, type RouteResult, type WorkflowOutcome } from "../adapters/index.ts";
 import { orient, writeAgentEntry, type Orientation } from "../orient/index.ts";
 import { hydrate, routineTransition, type HydrateOptions, type Hydration, type RoutineOutcome, type RoutineRequest } from "../hydration/index.ts";
 import { indexSemantic, querySemantic, rebuildSemantic, semanticStatus, type IndexResult, type SemanticQueryResult, type SemanticStatus } from "../semantic/index.ts";
@@ -26,11 +27,15 @@ export interface Project {
   readonly layout: Layout;
   readonly install: InstallState;
   readonly registry: Registry;
+  /** The entry token of the chat using this handle (Mode and Path were selected with it), if it has entered. */
+  readonly session?: string;
 }
 
 export interface OpenProjectOptions extends SelectPlatformOptions {
   /** Test-only: additional adapter implementations to make available. */
   readonly extraAdapters?: readonly AdapterImplementation[];
+  /** Entry token this chat already holds. */
+  readonly session?: string;
 }
 
 export async function openProject(cwd: string, options: OpenProjectOptions = {}): Promise<Project> {
@@ -41,7 +46,43 @@ export async function openProject(cwd: string, options: OpenProjectOptions = {})
   if (install.status !== "installed") {
     throw new ContinuityError({ code: "NOT_INITIALIZED", message: `TReePo is not initialized here (${install.reason})`, details: { root: layout.root, status: install.status } });
   }
-  return { platform, layout, install, registry: createRegistry(options.extraAdapters ?? []) };
+  return { platform, layout, install, registry: createRegistry(options.extraAdapters ?? []), ...(options.session === undefined ? {} : { session: options.session }) };
+}
+
+export interface EnterOptions {
+  readonly mode: "strategic" | "build";
+  /** "keep" keeps the persisted Path; it is not available before a Path has been selected. */
+  readonly path: "keep" | "director" | "developer";
+  readonly requester: string;
+  /** Supplied only by tests that need a fixed token; otherwise a fresh random token is generated. */
+  readonly token?: string;
+}
+
+export interface Entered {
+  /** The same project handle, now carrying the entry token. */
+  readonly project: Project;
+  readonly token: string;
+  readonly outcome: WorkflowOutcome;
+}
+
+/**
+ * Fresh entry: record the Mode and Path the human selected for this chat and return the entry token every later
+ * governed action in the chat presents. Only a digest of the token is recorded in project state.
+ */
+export async function enterProject(project: Project, options: EnterOptions): Promise<Entered> {
+  const token = options.token ?? randomBytes(24).toString("hex");
+  const state = await requireValidState(project.layout);
+  const facts = await observe(project);
+  const entered: Project = { ...project, session: token };
+  const outcome = await runWorkflowTransition(entered, {
+    adapterId: CONTINUITY_ID,
+    action: "enter",
+    input: { mode: options.mode, path: options.path },
+    requester: options.requester,
+    expectedPredecessorId: state.current.id,
+    expectedWorkingCopy: facts.workingCopy,
+  });
+  return { project: entered, token, outcome };
 }
 
 /** Distinct adapter states for this project (nothing is installed, authorized, or activated here). */

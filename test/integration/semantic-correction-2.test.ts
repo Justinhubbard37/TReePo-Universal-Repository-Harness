@@ -73,7 +73,7 @@ describe("Phase 8 second correction — valid identity with false semantic conte
   it("#authz-content-mismatch: a real anchored eligible grant reference with false authority content is not reported as anchored-eligible with no conflict; authority is evaluated from the record, never the index", async () => {
     await withTempDir(async (dir) => {
       const { project: base } = await workedProject(dir);
-      const project = await openProject(base.layout.root, { extraAdapters: [probeAdapter()] });
+      const project = await openProject(base.layout.root, { extraAdapters: [probeAdapter()], ...(base.session === undefined ? {} : { session: base.session }) });
       await installAdapter(project, { adapterId: PROBE_ID, requester: "h", ...(await prepared(project)) });
       const g = await grantAuthorization(project, { scope: { adapterId: PROBE_ID, capabilities: ["inspect"] }, grantor: "Owner", statement: "Owner permits read-only inspection only", requester: "h", ...(await prepared(project)) });
       await semantic.index(project);
@@ -97,7 +97,7 @@ describe("Phase 8 second correction — valid identity with false semantic conte
   it("#poison-zero-effect: poisoned semantic content has no effect on state, current-state selection, authorization, transition eligibility, or the fast lane", async () => {
     await withTempDir(async (dir) => {
       const { project: base } = await workedProject(dir);
-      const project = await openProject(base.layout.root, { extraAdapters: [probeAdapter()] });
+      const project = await openProject(base.layout.root, { extraAdapters: [probeAdapter()], ...(base.session === undefined ? {} : { session: base.session }) });
       await installAdapter(project, { adapterId: PROBE_ID, requester: "h", ...(await prepared(project)) });
       await semantic.index(project);
       const state = await current(project);

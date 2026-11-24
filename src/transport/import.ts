@@ -23,7 +23,9 @@
 // files → CURRENT last → final validation → journal removed. CURRENT is the
 // single switch: every earlier on-disk state fails validation.
 // Ownership of the shared writer lock is re-verified immediately before the
-// journal, every surface removal and file write, CURRENT, and completion. If
+// journal, every surface removal, directory creation and file write, CURRENT,
+// and completion, and likewise before every individual rollback, recovery and
+// adoption-cleanup mutation (R-02 correction; see journal.ts). If
 // ownership is lost, nothing further is written under the lost lock and nothing
 // is rolled back without ownership; ownership is re-established only by
 // acquiring the shared lock again, and then only the standard import recovery
@@ -40,9 +42,10 @@ import { createRegistry } from "../adapters/registry.ts";
 import { commitExists, observeRepository } from "../adapters/repo/git/index.ts";
 import { GITATTRIBUTES_CONTENT, GITIGNORE_CONTENT } from "../bootstrap/init.ts";
 import { classifyInstall } from "../bootstrap/preflight.ts";
-import { ContinuityError, isTreepoError } from "../core/errors.ts";
+import { ContinuityError, isTreepoError, TreepoError } from "../core/errors.ts";
 import { isSha256Hex, sha256Hex } from "../core/hash.ts";
 import { layoutFor, type Layout } from "../core/state/layout.ts";
+import { readAuthoritativeFileSet } from "../core/state/surface.ts";
 import { requireValidState, type ValidatedState, type ValidationOk } from "../core/state/validate.ts";
 import { listJournals } from "../core/tx/journal.ts";
 import { acquireLock, clearStaleLock, type ClearStaleLockResult, type LockHandle } from "../core/tx/lock.ts";
@@ -51,6 +54,7 @@ import { orient, writeAgentEntry } from "../orient/index.ts";
 import type { Platform } from "../platform/index.ts";
 import { decodeBundle, type TransportPointer } from "./bundle.ts";
 import {
+  ensureDirOwned,
   IMPORT_JOURNAL_KIND,
   IMPORT_JOURNAL_SCHEMA_VERSION,
   readImportJournal,
@@ -113,15 +117,6 @@ async function readIfExists(path: string): Promise<Uint8Array | undefined> {
   }
 }
 
-async function listRegularFiles(dir: string): Promise<string[]> {
-  try {
-    return (await fs.readdir(dir, { withFileTypes: true })).filter((e) => e.isFile()).map((e) => e.name).sort();
-  } catch (error) {
-    if ((error as { code?: unknown }).code === "ENOENT") return [];
-    throw error;
-  }
-}
-
 function toBase64(bytes: Uint8Array): string {
   return Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength).toString("base64");
 }
@@ -134,8 +129,9 @@ async function refuseCorePending(layout: Layout): Promise<void> {
 }
 
 /** Import is an assurance boundary: any session capability on the receiving copy stops being usable. */
-async function dropCapability(platform: Platform, layout: Layout): Promise<boolean> {
+async function dropCapability(platform: Platform, layout: Layout, lock: LockHandle): Promise<boolean> {
   const cap = await readCapability(layout);
+  await lock.verify();
   await invalidateCapability(platform, layout);
   return cap.status !== "absent";
 }
@@ -205,7 +201,7 @@ async function apply(platform: Platform, layout: Layout, verified: VerifiedBundl
       if (Buffer.compare(existing, bytes) === 0) continue;
       if (!journal.removes.some((r) => r.path === add.path && r.digest === sha256Hex(existing))) fail("TRANSPORT_TARGET_CHANGED", `${add.path} changed on the receiving copy during import`, { path: add.path });
     }
-    await fs.mkdir(nodePath.dirname(path), { recursive: true });
+    await ensureDirOwned(nodePath.dirname(path), lock);
     await lock.verify();
     await platform.writeFileAtomic(path, bytes, { label: "transport-file" });
   }
@@ -291,10 +287,15 @@ async function afterOwnershipLoss(pub: Publication, cause: unknown, withdrawOwne
       recovery = await recoverImport(pub.platform, pub.layout, relock);
       if (recovery === null && withdrawOwner && (await readIfExists(pub.layout.currentFile)) === undefined) {
         const temps = await ownerOnlyLeftovers(pub.layout, pub.verified);
-        await relock.verify();
-        for (const temp of temps) await pub.platform.removeFile(temp, { label: "transport-temp" });
+        for (const temp of temps) {
+          await relock.verify();
+          await pub.platform.removeFile(temp, { label: "transport-temp" });
+        }
         const owner = await readIfExists(pub.layout.ownerFile);
-        if (owner !== undefined && Buffer.compare(owner, pub.verified.ownerBytes) === 0) await pub.platform.removeFile(pub.layout.ownerFile, { label: "transport-rollback" });
+        if (owner !== undefined && Buffer.compare(owner, pub.verified.ownerBytes) === 0) {
+          await relock.verify();
+          await pub.platform.removeFile(pub.layout.ownerFile, { label: "transport-rollback" });
+        }
       }
     } catch (error) {
       if (!isTreepoError(error)) throw error;
@@ -315,6 +316,65 @@ async function afterOwnershipLoss(pub: Publication, cause: unknown, withdrawOwne
     details: { reacquired: relock !== undefined, lockError, recovery, recoveryError, cause: isTreepoError(cause) ? { code: cause.code, message: cause.message } : String(cause) },
     cause,
   });
+}
+
+/**
+ * A fresh adoption created OWNER, then could not take the writer lock. Holding no lock, it proves nothing about
+ * the namespace: another import of the same bundle may meanwhile have resumed this adoption and published valid
+ * state (identical owner bytes prove nothing about who owns the namespace now). The marker is therefore withdrawn
+ * only under legitimately acquired ownership and only while the namespace is still, freshly verified, an
+ * owner-only start: no CURRENT, no import journal, no pending core transaction, nothing but this bundle's owner
+ * marker and owner temps. Otherwise nothing is touched; an incomplete adoption resumes with the next import.
+ */
+async function afterFirstLockFailure(pub: Publication, cause: TreepoError): Promise<TreepoError> {
+  const { platform, layout, verified } = pub;
+  let withdrawn = false;
+  let kept = "";
+  let relock: LockHandle | undefined;
+  try {
+    relock = await acquireLock(platform, layout);
+  } catch (error) {
+    if (!isTreepoError(error)) throw error;
+    kept = `ownership is unavailable (${error.code})`;
+  }
+  if (relock !== undefined) {
+    try {
+      if ((await readIfExists(layout.currentFile)) !== undefined) kept = "the namespace now has a CURRENT pointer";
+      else if ((await readImportJournal(layout)).status !== "absent") kept = "an import journal is present; import recovery resolves it";
+      else {
+        await refuseCorePending(layout);
+        const temps = await ownerOnlyLeftovers(layout, verified);
+        const owner = await readIfExists(layout.ownerFile);
+        if (owner === undefined || Buffer.compare(owner, verified.ownerBytes) !== 0) kept = "the owner marker is no longer this bundle's";
+        else {
+          for (const temp of temps) {
+            await relock.verify();
+            await platform.removeFile(temp, { label: "transport-temp" });
+          }
+          await relock.verify();
+          await platform.removeFile(layout.ownerFile, { label: "transport-rollback" });
+          withdrawn = true;
+        }
+      }
+    } catch (error) {
+      if (!isTreepoError(error)) throw error;
+      kept = `the namespace is not an owner-only start (${error.code})`;
+    } finally {
+      await releaseIfOwned(relock);
+    }
+  }
+  const outcome = withdrawn
+    ? "ownership was then acquired and the owner marker this import created was withdrawn; the copy is as it was"
+    : `the owner marker was left untouched because ${kept}; run the import again once the other writer is done (it resumes the incomplete adoption), or validate if another import completed`;
+  // Same code and category as the acquisition failure; the details say what happened to the owner marker.
+  const error = new TreepoError(cause.category, {
+    code: cause.code,
+    message: `${cause.message}; ${outcome}`,
+    details: { ...cause.details, ownerWithdrawn: withdrawn, ownershipReacquired: relock !== undefined },
+    cause,
+  });
+  error.name = cause.name;
+  return error;
 }
 
 /** Run `body` under the writer lock with import crash/abort semantics. */
@@ -378,7 +438,7 @@ async function importIntoInstalled(pub: Publication): Promise<ImportResult> {
   return underLock(pub, lock, async (setJournal) => {
     await refuseCorePending(layout);
     const recovered = await recoverImport(platform, layout, lock);
-    const capabilityInvalidated = await dropCapability(platform, layout);
+    const capabilityInvalidated = await dropCapability(platform, layout, lock);
 
     let receiving: ValidatedState;
     try {
@@ -424,23 +484,21 @@ async function importIntoInstalled(pub: Publication): Promise<ImportResult> {
       adds.push({ path: rel, digest: sha256Hex(bytes) });
     }
     for (const [prefix, dir] of [["state/authz", layout.authzDir], ["adapters", layout.adaptersDir]] as const) {
-      for (const name of await listRegularFiles(dir)) {
+      // The same no-follow enumeration validation digests: unsupported entries fail closed, none is skipped.
+      for (const { name, bytes: existing } of await readAuthoritativeFileSet(dir)) {
         const rel = `${prefix}/${name}`;
         if (verified.decoded.files.has(rel)) continue;
         if (classifyTransportPath(rel) === null) fail("TRANSPORT_CONTRADICTORY", `the receiving copy binds ${rel}, which is not a transportable authoritative path`, { path: rel });
-        const existing = await fs.readFile(nodePath.join(dir, name));
         removes.push({ path: rel, digest: sha256Hex(existing), bytes: toBase64(existing) });
       }
     }
     const journal: ImportJournal = { schemaVersion: IMPORT_JOURNAL_SCHEMA_VERSION, kind: IMPORT_JOURNAL_KIND, bundleDigest: verified.decoded.bundleDigest, predecessor: previous, target: verified.current, adds, removes, lockToken: lock.info.token };
-    await lock.verify();
-    await writeImportJournal(platform, layout, journal);
+    await writeImportJournal(platform, layout, journal, lock);
     setJournal(journal);
     await apply(platform, layout, verified, journal, lock);
     await lock.verify();
     const validation = await finalValidation(layout, verified);
-    await lock.verify();
-    await removeImportJournal(platform, layout);
+    await removeImportJournal(platform, layout, lock);
     setJournal(undefined);
     return resultOf(pub, "fast-forwarded", { previous, journal, recovered, capabilityInvalidated, validation, agentEntry: await refreshAgentEntry(platform, layout) });
   });
@@ -460,10 +518,7 @@ async function importIntoFresh(pub: Publication, incomplete: boolean): Promise<I
   try {
     lock = await acquireLock(platform, layout);
   } catch (error) {
-    if (createdOwner && !(isTreepoError(error) && error.code === "INJECTED_FAULT")) {
-      const owner = await readIfExists(layout.ownerFile);
-      if (owner !== undefined && Buffer.compare(owner, verified.ownerBytes) === 0) await platform.removeFile(layout.ownerFile, { label: "transport-rollback" });
-    }
+    if (createdOwner && isTreepoError(error) && error.code !== "INJECTED_FAULT") throw await afterFirstLockFailure(pub, error);
     throw error;
   }
   return underLock(pub, lock, async (setJournal) => {
@@ -479,22 +534,25 @@ async function importIntoFresh(pub: Publication, incomplete: boolean): Promise<I
       if (createdOwner && owner !== undefined && Buffer.compare(owner, verified.ownerBytes) === 0 && (await owns(lock))) await platform.removeFile(layout.ownerFile, { label: "transport-rollback" });
       throw error;
     }
-    await lock.verify();
-    if ((await readIfExists(layout.ownerFile)) === undefined) await platform.writeFileAtomic(layout.ownerFile, verified.ownerBytes, { label: "OWNER" });
-    for (const temp of temps) await platform.removeFile(temp, { label: "transport-temp" });
-    const capabilityInvalidated = await dropCapability(platform, layout);
+    if ((await readIfExists(layout.ownerFile)) === undefined) {
+      await lock.verify();
+      await platform.writeFileAtomic(layout.ownerFile, verified.ownerBytes, { label: "OWNER" });
+    }
+    for (const temp of temps) {
+      await lock.verify();
+      await platform.removeFile(temp, { label: "transport-temp" });
+    }
+    const capabilityInvalidated = await dropCapability(platform, layout, lock);
 
     const adds: JournalAdd[] = [{ path: "OWNER", digest: sha256Hex(verified.ownerBytes) }, ...(await scaffoldAdds(layout))];
     for (const [rel, bytes] of verified.decoded.files) if (rel !== "OWNER" && rel !== "state/CURRENT") adds.push({ path: rel, digest: sha256Hex(bytes) });
     const journal: ImportJournal = { schemaVersion: IMPORT_JOURNAL_SCHEMA_VERSION, kind: IMPORT_JOURNAL_KIND, bundleDigest: verified.decoded.bundleDigest, predecessor: null, target: verified.current, adds, removes: [], lockToken: lock.info.token };
-    await lock.verify();
-    await writeImportJournal(platform, layout, journal);
+    await writeImportJournal(platform, layout, journal, lock);
     setJournal(journal);
     await apply(platform, layout, verified, journal, lock);
     await lock.verify();
     const validation = await finalValidation(layout, verified);
-    await lock.verify();
-    await removeImportJournal(platform, layout);
+    await removeImportJournal(platform, layout, lock);
     setJournal(undefined);
     return resultOf(pub, "imported", { previous: null, journal, recovered, capabilityInvalidated, validation, agentEntry: await refreshAgentEntry(platform, layout) });
   }, createdOwner);

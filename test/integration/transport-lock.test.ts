@@ -18,7 +18,7 @@ import { acquireLock, journalDir, listJournals, lockFile } from "../../src/core/
 import { current, exportProject, importProject, openProject, recover, type Project } from "../../src/harness/index.ts";
 import { selectPlatform, type Platform } from "../../src/platform/index.ts";
 import { importBundle, importJournalFile, recoverImport, type ExportResult } from "../../src/transport/index.ts";
-import { prepared } from "../helpers/adapter-fixture.ts";
+import { enter, prepared } from "../helpers/adapter-fixture.ts";
 import type { GitRepo } from "../helpers/git-fixture.ts";
 import { exists } from "../helpers/tmpdir.ts";
 import { cloneRepo, originProject, removeWithRetry, treepoDigest, treepoFiles } from "../helpers/transport-fixture.ts";
@@ -84,6 +84,8 @@ function loseLock(project: Project): Promise<void> {
 }
 
 async function checkpointBy(project: Project, label: string): Promise<string> {
+  // The second writer is a fresh chat on the receiving copy: it selects Mode and Path before governed work.
+  if (project.session === undefined) await enter(project);
   const r = await runWorkflowTransition(project, { adapterId: CONTINUITY_ID, action: "checkpoint", input: { label }, requester: "second-writer", ...(await prepared(project)) });
   return r.result.stateId;
 }

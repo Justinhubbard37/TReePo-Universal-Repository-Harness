@@ -8,12 +8,11 @@
 // Adapter Contract §4 layers 2–4, §7 (compatibility deterministically
 // checkable; unknown prerequisites fail closed).
 
-import { promises as fs } from "node:fs";
-import * as nodePath from "node:path";
 import { canonicalBytes, parseCanonical } from "../core/canon.ts";
 import { ContinuityError } from "../core/errors.ts";
 import { evaluateAuthorization, type AuthzRecord } from "../core/authz/index.ts";
 import type { Layout } from "../core/state/layout.ts";
+import { readAuthoritativeFileSet } from "../core/state/surface.ts";
 import type { ValidatedState } from "../core/state/validate.ts";
 import { activationOf, ADAPTER_API, CORE_API, type AdapterImplementation, type AdapterManifest, type AdapterStatus, type Prerequisite } from "./api.ts";
 import type { RepositoryFacts } from "./repo/git/facts.ts";
@@ -54,20 +53,15 @@ export function encodeInstalledRecord(record: InstalledRecord): Uint8Array {
 }
 
 export async function readInstalledRecords(layout: Layout): Promise<InstalledRecord[]> {
-  let names: string[];
-  try {
-    names = (await fs.readdir(layout.adaptersDir)).sort();
-  } catch (error) {
-    if ((error as { code?: unknown }).code === "ENOENT") return [];
-    throw error;
-  }
+  // The same no-follow enumeration the registry digest is computed from: a linked or
+  // non-regular entry fails closed instead of being read from outside the anchored set.
   const out: InstalledRecord[] = [];
-  for (const name of names) {
+  for (const { name, bytes } of await readAuthoritativeFileSet(layout.adaptersDir)) {
     const m = /^(.+)\.json$/.exec(name);
     if (m === null) throw new ContinuityError({ code: "ADAPTER_REGISTRY_MALFORMED", message: `unexpected entry ${name} in adapter registry`, details: { name } });
     let parsed: unknown;
     try {
-      parsed = parseCanonical(await fs.readFile(nodePath.join(layout.adaptersDir, name)));
+      parsed = parseCanonical(bytes);
     } catch (cause) {
       throw new ContinuityError({ code: "ADAPTER_REGISTRY_MALFORMED", message: `${name} is not canonical JSON`, details: { name }, cause });
     }

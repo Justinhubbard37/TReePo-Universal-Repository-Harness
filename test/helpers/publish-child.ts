@@ -31,6 +31,9 @@ async function main(): Promise<void> {
     return; // exit without releasing: simulates a crashed writer
   }
   const before = await requireValidState(layout);
+  // Readiness handshake: tell the parent this writer has observed the predecessor, then wait for the release.
+  // (A fixed delay in the parent would let a slow child observe a later state and stop being a competing writer.)
+  await fs.writeFile(`${goFile!}.ready-${name ?? "child"}`, String(process.pid));
   await waitFor(goFile!);
   try {
     const result = await publish({ platform, layout }, { expectedPredecessorId: before.current.id, name: name ?? "child" });

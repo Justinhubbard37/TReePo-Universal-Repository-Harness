@@ -13,7 +13,7 @@ import { errorCode } from "../../src/core/errors.ts";
 import { sha256Hex } from "../../src/core/hash.ts";
 import { current, observe, openProject, orientProject, type Project } from "../../src/harness/index.ts";
 import { renderOrientation } from "../../src/orient/index.ts";
-import { prepared, projectWith } from "../helpers/adapter-fixture.ts";
+import { enter, prepared, projectWith, setMode } from "../helpers/adapter-fixture.ts";
 import { AUTH, createGitRepo } from "../helpers/git-fixture.ts";
 import { withTempDir } from "../helpers/tmpdir.ts";
 
@@ -23,12 +23,24 @@ const PROJECT = ["objective", "plan", "raise", "decide"];
 async function ready(dir: string, grant: readonly string[] = [...WORK, ...PROJECT]): Promise<Project> {
   const { project } = await projectWith(dir, []);
   await installAdapter(project, { adapterId: CONTINUITY_ID, requester: "human", ...(await prepared(project)) });
-  await grantAuthorization(project, { scope: { adapterId: CONTINUITY_ID, capabilities: [...grant] }, grantor: "Owner", statement: "The agent may run the project workflow.", requester: "human", ...(await prepared(project)) });
-  await activateAdapter(project, { adapterId: CONTINUITY_ID, capabilities: ["orient", ...grant], requester: "human", ...(await prepared(project)) });
+  await grantAuthorization(project, { scope: { adapterId: CONTINUITY_ID, capabilities: ["session", ...grant] }, grantor: "Owner", statement: "The agent may run the project workflow.", requester: "human", ...(await prepared(project)) });
+  await activateAdapter(project, { adapterId: CONTINUITY_ID, capabilities: ["orient", "session", ...grant], requester: "human", ...(await prepared(project)) });
+  // The human selects Strategic Collaboration for this chat (these journeys start with strategy).
+  await enter(project, "strategic");
   return project;
 }
 
+const STRATEGY = new Set(["objective", "plan", "decide", "close", "reopen"]);
+const EXECUTION = new Set(["begin", "progress", "complete", "resume"]);
+
+/**
+ * One governed action. Where the action belongs to the other Mode, the human's explicit Mode change is recorded
+ * first (a governed transition of its own), exactly as it must be in a real chat.
+ */
 async function act(project: Project, action: string, input: Record<string, unknown>) {
+  const entry = (await cstate(project)).entry;
+  const need = STRATEGY.has(action) ? "strategic" : EXECUTION.has(action) ? "build" : null;
+  if (need !== null && entry !== null && entry.ended === null && entry.mode !== need) await setMode(project, need);
   return runWorkflowTransition(project, { adapterId: CONTINUITY_ID, action, input: input as never, requester: "agent", ...(await prepared(project)) });
 }
 
@@ -68,7 +80,9 @@ describe("project-wide continuity in the continuity workflow adapter", () => {
       assert.ok((await current(project)).current.object.core.accepted.some((a) => a.id === `decision:${d.id}`));
 
       const signup = c.workstreams.find((w) => w.label === "Sign-up flow")!;
-      await act(project, "begin", { workstream: signup.id, nextAction: "build the email form", nextActionId: "form" });
+      // Two planned workstreams are eligible and nothing orders them: starting one is the human's direction.
+      await assert.rejects(act(project, "begin", { workstream: signup.id, nextAction: "build the email form", nextActionId: "form" }), (e: unknown) => errorCode(e) === "SUCCESSOR_NOT_ESTABLISHED");
+      await act(project, "begin", { workstream: signup.id, directedBy: "Owner", nextAction: "build the email form", nextActionId: "form" });
       await act(project, "progress", { completed: [{ id: "form", digest: sha256Hex("form built"), note: "form built" }], nextAction: "send verification email" });
       await act(project, "complete", { outcome: "people can sign up with email" });
       st = await current(project);
@@ -168,8 +182,9 @@ describe("project-wide continuity in the continuity workflow adapter", () => {
     await withTempDir(async (dir) => {
       const { project } = await projectWith(dir, []);
       await installAdapter(project, { adapterId: CONTINUITY_ID, requester: "human", ...(await prepared(project)) });
-      await grantAuthorization(project, { scope: { adapterId: CONTINUITY_ID, capabilities: [...WORK, ...PROJECT] }, grantor: "Owner", statement: "all", requester: "human", ...(await prepared(project)) });
-      await activateAdapter(project, { adapterId: CONTINUITY_ID, capabilities: WORK, requester: "human", ...(await prepared(project)) });
+      await grantAuthorization(project, { scope: { adapterId: CONTINUITY_ID, capabilities: ["session", ...WORK, ...PROJECT] }, grantor: "Owner", statement: "all", requester: "human", ...(await prepared(project)) });
+      await activateAdapter(project, { adapterId: CONTINUITY_ID, capabilities: ["session", ...WORK], requester: "human", ...(await prepared(project)) });
+      await enter(project, "strategic");
       await assert.rejects(act(project, "objective", { objective: "x" }), (e: unknown) => errorCode(e) === "ADAPTER_NOT_ACTIVE");
     });
   });
@@ -209,16 +224,14 @@ describe("project-wide continuity in the continuity workflow adapter", () => {
     assert.deepEqual([old.objective, old.workstreams, old.items, old.decisions], [null, [], [], []]);
   });
 
-  it("work begun before the project-wide fields existed completes into a completed workstream entry", () => {
+  it("state recorded in an earlier format is never rewritten in place: the workflow refuses until the explicit adapter update", () => {
     const legacy = { lifecycle: "active", work: { label: "legacy task", beganAtSeq: 3 }, checkpoints: 0, lastHandoff: null, lastAction: { action: "begin", atSeq: 3 } };
     const context = { state: { current: { object: { seq: 5, core: { accepted: [], completed: [], nextAction: { id: "n", description: "n", prerequisites: [] }, position: { label: "active", detail: "legacy task" } }, adapter: { [CONTINUITY_ID]: legacy } } } }, facts: {} } as never;
-    const planned = continuityAdapter.planTransition("complete", context, { outcome: "done" });
-    assert.ok(planned.ok);
-    if (!planned.ok) return;
-    const after = parseContinuityState(planned.plan.adapterState);
-    assert.deepEqual(after.workstreams.map((w) => [w.id, w.label, w.status, w.outcome, w.completedAtSeq]), [["ws-3", "legacy task", "done", "done", 6]]);
-    assert.deepEqual(planned.plan.addCompleted?.map((i) => i.id), ["workstream:ws-3"]);
-    assert.equal(planned.plan.position.label, "idle");
+    for (const action of ["complete", "pause", "progress", "enter"]) {
+      const planned = continuityAdapter.planTransition(action, context, { outcome: "done", nextAction: "n" });
+      assert.equal(planned.ok, false, action);
+      if (!planned.ok) assert.equal(planned.code, "ADAPTER_UPDATE_REQUIRED", action);
+    }
   });
 
   it("collaboration guidance is vendor-neutral and keeps recommendation distinct from decision", () => {
@@ -260,20 +273,26 @@ describe("project-wide continuity through the treepo CLI", () => {
       const root = repo.root;
       await ok(root, "init", "--requester", "agent", "--grantor", AUTH.grantor, "--statement", AUTH.statement);
       await ok(root, "adapter", "install", CONTINUITY_ID, "--requester", "agent");
-      const caps = [...WORK, ...PROJECT].join(",");
+      const caps = ["session", ...WORK, ...PROJECT].join(",");
       await ok(root, "authorize", "grant", "--adapter", CONTINUITY_ID, "--capability", caps, "--grantor", "Owner", "--statement", "run the project workflow", "--requester", "agent");
       await ok(root, "adapter", "activate", CONTINUITY_ID, "--capability", `orient,${caps}`, "--requester", "agent");
-      await ok(root, "objective", "--text", "Salon booking app", "--requester", "agent");
-      const planned = (await ok(root, "plan", "--workstream", "Sign-up", "--purpose", "accounts", "--requester", "agent")) as { nextAction: { description: string } };
+      const entry = ((await ok(root, "enter", "--mode", "strategic", "--path", "director", "--requester", "agent")) as { entry: string }).entry;
+      const e = ["--entry", entry];
+      await ok(root, "objective", "--text", "Salon booking app", "--requester", "agent", ...e);
+      const planned = (await ok(root, "plan", "--workstream", "Sign-up", "--purpose", "accounts", "--requester", "agent", ...e)) as { nextAction: { description: string } };
       const wsId = /ws-\d+/.exec(planned.nextAction.description)![0];
-      await ok(root, "raise", "--kind", "question", "--title", "Email or phone?", "--option", "email", "--option", "phone", "--recommend", "email", "--requester", "agent");
+      await ok(root, "raise", "--kind", "question", "--title", "Email or phone?", "--option", "email", "--option", "phone", "--recommend", "email", "--requester", "agent", ...e);
       const qId = `q-${((await ok(root, "orient")) as { seq: number }).seq}`;
-      const bad = await treepo(root, "decide", "--item", qId, "--choice", "email", "--requester", "agent");
+      const bad = await treepo(root, "decide", "--item", qId, "--choice", "email", "--requester", "agent", ...e);
       assert.equal(bad.code, 2, "a decision without --by is a usage error");
-      await ok(root, "decide", "--item", qId, "--choice", "email", "--by", "Owner", "--requester", "agent");
-      await ok(root, "begin", "--workstream", wsId, "--next", "build form", "--requester", "agent");
-      await ok(root, "progress", "--done", "form=email form built", "--next", "verify email", "--requester", "agent");
-      const done = (await ok(root, "complete", "--outcome", "email sign-up works", "--requester", "agent")) as { position: { label: string } };
+      await ok(root, "decide", "--item", qId, "--choice", "email", "--by", "Owner", "--requester", "agent", ...e);
+      // Strategic Collaboration does no implementation: beginning is refused until the human changes Mode.
+      const early = await treepo(root, "begin", "--workstream", wsId, "--next", "build form", "--requester", "agent", ...e);
+      assert.equal((early.json as { error: { code: string } }).error.code, "MODE_FORBIDS");
+      await ok(root, "mode", "--to", "build", "--requester", "agent", ...e);
+      await ok(root, "begin", "--workstream", wsId, "--next", "build form", "--requester", "agent", ...e);
+      await ok(root, "progress", "--done", "form=email form built", "--next", "verify email", "--requester", "agent", ...e);
+      const done = (await ok(root, "complete", "--outcome", "email sign-up works", "--evidence", "manual sign-up test passed", "--requester", "agent", ...e)) as { position: { label: string } };
       assert.equal(done.position.label, "idle");
       const text = (await treepo(root, "orient", "--text")).stdout;
       assert.match(text, /### Objective\n\n- Salon booking app/);

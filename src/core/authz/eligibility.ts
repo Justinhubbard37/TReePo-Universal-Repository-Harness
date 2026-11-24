@@ -9,10 +9,10 @@
 // none of them implies authorization.
 
 import { ContinuityError } from "../errors.ts";
-import { digestFileSet } from "../state/surface.ts";
+import { digestOfFileSet, readAuthoritativeFileSet, requireRealNamespace } from "../state/surface.ts";
 import type { Layout } from "../state/layout.ts";
 import type { ValidatedState } from "../state/validate.ts";
-import { readAuthzRecords, type AuthzRecord } from "./record.ts";
+import { parseAuthzRecords, type AuthzRecord } from "./record.ts";
 
 export interface AuthorizationNeed {
   readonly adapterId: string;
@@ -33,9 +33,16 @@ export interface AuthorizationDecision {
  * Read the authorization records and prove they are exactly the set the
  * current state anchors. Any drift (an added, removed or altered file) is a
  * fail-closed AUTHZ_UNANCHORED, independent of full validation.
+ *
+ * The set is read once, without following links, and those exact bytes are
+ * both digested against the anchor and interpreted. A record reachable only
+ * through a symbolic link or junction is never read: the entry fails closed
+ * as AUTHORITATIVE_ENTRY_UNSUPPORTED.
  */
 export async function loadAnchoredAuthz(layout: Layout, state: ValidatedState): Promise<AuthzRecord[]> {
-  const live = await digestFileSet(layout.authzDir);
+  await requireRealNamespace(layout);
+  const files = await readAuthoritativeFileSet(layout.authzDir);
+  const live = digestOfFileSet(files);
   if (live !== state.current.object.surfaceDigests.authzSetDigest) {
     throw new ContinuityError({
       code: "AUTHZ_UNANCHORED",
@@ -43,7 +50,7 @@ export async function loadAnchoredAuthz(layout: Layout, state: ValidatedState): 
       details: { anchored: state.current.object.surfaceDigests.authzSetDigest, live },
     });
   }
-  return readAuthzRecords(layout);
+  return parseAuthzRecords(files);
 }
 
 export function evaluateAuthorization(records: readonly AuthzRecord[], currentSeq: number, need: AuthorizationNeed): AuthorizationDecision {

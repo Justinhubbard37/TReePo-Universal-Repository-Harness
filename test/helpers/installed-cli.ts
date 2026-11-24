@@ -7,7 +7,8 @@
 // they resolve `treepo` exactly as a shell would.
 import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { promises as fs, existsSync, mkdirSync, readFileSync } from "node:fs";
+import { promises as fs, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import * as os from "node:os";
 import * as path from "node:path";
 import { repoRoot } from "./repo.ts";
 
@@ -87,10 +88,61 @@ export interface PackedArtifact {
   readonly files: readonly string[];
 }
 
-/** `npm pack` of this repository into `dest` (runs the real `prepack` build). */
+function sleepSync(ms: number): void {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+function alive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return (error as { code?: unknown }).code === "EPERM";
+  }
+}
+
+/**
+ * Serialize everything that rebuilds this checkout's `dist/`. `npm pack` runs `prepack`, which deletes and
+ * rebuilds `dist/` in place; test files run as parallel processes, so two packs at once could read a half-built
+ * tree. The lock is a directory created atomically, keyed by this checkout; a lock whose owner process no longer
+ * exists is taken over. Nothing is retried: the second pack simply waits for the first to finish.
+ */
+function withBuildLock<T>(fn: () => T): T {
+  const lock = path.join(os.tmpdir(), `treepo-pack-lock-${createHash("sha256").update(repoRoot().toLowerCase()).digest("hex").slice(0, 16)}`);
+  const owner = path.join(lock, "owner");
+  const deadline = Date.now() + 10 * 60_000;
+  for (;;) {
+    try {
+      mkdirSync(lock);
+      writeFileSync(owner, String(process.pid));
+      break;
+    } catch (error) {
+      if ((error as { code?: unknown }).code !== "EEXIST") throw error;
+      let holder = Number.NaN;
+      try {
+        holder = Number(readFileSync(owner, "utf8"));
+      } catch {
+        // The owner file is written right after the directory is created; treat a missing one as "just taken".
+      }
+      if (Number.isInteger(holder) && !alive(holder)) {
+        rmSync(lock, { recursive: true, force: true });
+        continue;
+      }
+      if (Date.now() > deadline) throw new Error(`timed out waiting for the package build lock at ${lock}`);
+      sleepSync(100);
+    }
+  }
+  try {
+    return fn();
+  } finally {
+    rmSync(lock, { recursive: true, force: true });
+  }
+}
+
+/** `npm pack` of this repository into `dest` (runs the real `prepack` build). Serialized across test processes. */
 export function packRepository(scratch: string, dest: string): PackedArtifact {
   mkdirSync(dest, { recursive: true });
-  const r = npm(scratch, ["pack", "--json", "--pack-destination", dest], repoRoot());
+  const r = withBuildLock(() => npm(scratch, ["pack", "--json", "--pack-destination", dest], repoRoot()));
   if (r.code !== 0) throw new Error(`npm pack failed (${r.code}): ${r.stderr}`);
   // prepack output precedes the JSON document on stdout.
   const start = r.stdout.indexOf("[");

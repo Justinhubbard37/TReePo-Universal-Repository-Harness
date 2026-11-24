@@ -14,12 +14,19 @@
 // requires every lineage object, no extra objects, and surface files matching
 // the digests the current state binds), so a concurrent publication can only
 // make export fail, never make it write a mixed state.
+//
+// Enumeration (R-01 correction): the exported set is the same set validation
+// digests and authorization consumes. Every entry in `state/objects`,
+// `state/authz` and `adapters` must be a regular file and is read without
+// following links; a link, junction, directory or special entry makes export
+// refuse (AUTHORITATIVE_ENTRY_UNSUPPORTED) instead of being silently omitted.
 
 import { promises as fs } from "node:fs";
 import * as nodePath from "node:path";
 import { gitBlobId, headBlobIds, objectFormat } from "../adapters/repo/git/index.ts";
 import { ContinuityError } from "../core/errors.ts";
 import type { Layout } from "../core/state/layout.ts";
+import { readAuthoritativeFile, readAuthoritativeFileSet, requireRealNamespace } from "../core/state/surface.ts";
 import { requireValidState } from "../core/state/validate.ts";
 import { listJournals } from "../core/tx/journal.ts";
 import type { Platform } from "../platform/index.ts";
@@ -51,29 +58,24 @@ export interface ExportResult {
   readonly note: string;
 }
 
-async function listRegularFiles(dir: string): Promise<string[]> {
-  try {
-    return (await fs.readdir(dir, { withFileTypes: true })).filter((e) => e.isFile()).map((e) => e.name).sort();
-  } catch (error) {
-    if ((error as { code?: unknown }).code === "ENOENT") return [];
-    throw error;
-  }
-}
-
-/** Read every authoritative-bearing file (ED-07) into memory. Nothing under runtime/ is ever read. */
+/** Read every authoritative-bearing file (ED-07) into memory. Nothing under runtime/ is ever read; nothing is read through a link. */
 export async function collectAuthoritativeFiles(layout: Layout): Promise<Map<string, Uint8Array>> {
+  await requireRealNamespace(layout);
   const files = new Map<string, Uint8Array>();
-  const add = async (rel: string): Promise<void> => {
+  const add = (rel: string, bytes: Uint8Array): void => {
     if (classifyTransportPath(rel) === null) {
       throw new ContinuityError({ code: "TRANSPORT_PATH_FORBIDDEN", message: `${rel} sits in an authoritative directory but is not an authoritative transport path; export refused`, details: { path: rel } });
     }
-    files.set(rel, await fs.readFile(nodePath.join(layout.treepoDir, ...rel.split("/"))));
+    files.set(rel, bytes);
   };
-  await add("OWNER");
-  await add("state/CURRENT");
-  for (const name of await listRegularFiles(layout.objectsDir)) await add(`state/objects/${name}`);
-  for (const name of await listRegularFiles(layout.authzDir)) await add(`state/authz/${name}`);
-  for (const name of await listRegularFiles(layout.adaptersDir)) await add(`adapters/${name}`);
+  for (const rel of ["OWNER", "state/CURRENT"]) {
+    const bytes = await readAuthoritativeFile(nodePath.join(layout.treepoDir, ...rel.split("/")));
+    if (bytes === undefined) throw new ContinuityError({ code: "TRANSPORT_SOURCE_INCOMPLETE", message: `${rel} is missing; export refused`, details: { path: rel } });
+    add(rel, bytes);
+  }
+  for (const [prefix, dir] of [["state/objects", layout.objectsDir], ["state/authz", layout.authzDir], ["adapters", layout.adaptersDir]] as const) {
+    for (const { name, bytes } of await readAuthoritativeFileSet(dir)) add(`${prefix}/${name}`, bytes);
+  }
   return files;
 }
 

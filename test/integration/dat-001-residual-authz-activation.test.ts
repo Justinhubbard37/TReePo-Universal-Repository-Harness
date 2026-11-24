@@ -68,6 +68,15 @@ async function ok(cwd: string, ...args: string[]): Promise<unknown> {
   return r.json;
 }
 
+/** A fresh chat: the human authorizes and activates the operating-choice capability, then Mode and Path are selected. Returns the entry token. */
+async function enterCli(root: string, alreadyGranted = false): Promise<string> {
+  if (!alreadyGranted) {
+    await ok(root, "authorize", "grant", "--adapter", "treepo.workflow.continuity", "--capability", "session", "--grantor", "Human", "--statement", "the agent may record Mode and Path", "--requester", "human");
+    await ok(root, "adapter", "activate", "treepo.workflow.continuity", "--capability", "session", "--requester", "human");
+  }
+  return ((await ok(root, "enter", "--mode", "build", "--path", "developer", "--requester", "human")) as { entry: string }).entry;
+}
+
 function withoutLiveCount(text: string): string {
   return text
     .split("\n")
@@ -247,7 +256,8 @@ describe("DAT-001 residual: pre-work next action reflects authorization and acti
       const root = await initInstalled(dir);
       await grantBegin(root);
       await ok(root, "adapter", "activate", CONTINUITY, "--capability", "orient,begin", "--requester", "human");
-      const begun = (await ok(root, "begin", "--work", "residual work", "--next", "write the residual section", "--requester", "agent")) as { nextAction: NextAction };
+      const entry = await enterCli(root);
+      const begun = (await ok(root, "begin", "--work", "residual work", "--next", "write the residual section", "--requester", "agent", "--entry", entry)) as { nextAction: NextAction };
       assert.equal(begun.nextAction.description, "write the residual section");
       const f = await observeFresh(root);
       assert.deepEqual(f.nextAction, { id: `na-${f.seq}`, description: "write the residual section", prerequisites: [] });

@@ -41,10 +41,12 @@ function lastJson(r: Result): Json {
 const SETUP_STEPS: readonly (readonly string[])[] = [
   ["init", "--requester", "director", "--grantor", "Director", "--statement", "I authorize TReePo governance for this project.", "--project", "Natural"],
   ["adapter", "install", CONTINUITY, "--requester", "director"],
-  ["authorize", "grant", "--adapter", CONTINUITY, "--capability", "begin,progress,checkpoint", "--grantor", "Director", "--statement", "Authorize continuity work.", "--requester", "director"],
-  ["adapter", "activate", CONTINUITY, "--capability", "orient,begin,progress,checkpoint", "--requester", "director"],
-  ["begin", "--work", "natural environment work", "--next", "draft the first module", "--requester", "agent"],
+  ["authorize", "grant", "--adapter", CONTINUITY, "--capability", "session,begin,progress,checkpoint", "--grantor", "Director", "--statement", "Authorize continuity work.", "--requester", "director"],
+  ["adapter", "activate", CONTINUITY, "--capability", "orient,session,begin,progress,checkpoint", "--requester", "director"],
 ];
+// The setting-up chat selects Mode and Path, then begins the work with its entry token.
+const ENTER_STEP: readonly string[] = ["enter", "--mode", "build", "--path", "developer", "--requester", "director"];
+const BEGIN_STEP: readonly string[] = ["begin", "--work", "natural environment work", "--next", "draft the first module", "--requester", "agent"];
 
 // A PowerShell stand-in for a compliant agent: learns the command from the entry, resolves it by bare name, never a suffix.
 const PS_AGENT = `
@@ -56,7 +58,9 @@ $rule = ($entry -split "\\r?\\n" | Where-Object { $_ -like '*is not found or can
 $c = Get-Command $cmd -ErrorAction SilentlyContinue
 if ($null -eq $c) { [pscustomobject]@{ decision = 'STOP'; reason = 'TReePo control surface unavailable'; command = $cmd; rule = $rule } | ConvertTo-Json -Compress; exit 3 }
 $before = & $cmd orient | Out-String | ConvertFrom-Json
-$t = & $cmd progress --done "$($before.nextAction.id)=done by a PowerShell agent" --next 'review the external agent result' --requester fresh-agent | Out-String | ConvertFrom-Json
+$e = & $cmd enter --mode build --path keep --requester fresh-agent | Out-String | ConvertFrom-Json
+if (-not $e.entry) { [pscustomobject]@{ decision = 'STOP'; reason = 'fresh entry refused' } | ConvertTo-Json -Compress; exit 9 }
+$t = & $cmd progress --done "$($before.nextAction.id)=done by a PowerShell agent" --next 'review the external agent result' --requester fresh-agent --entry $e.entry | Out-String | ConvertFrom-Json
 $after = & $cmd orient | Out-String | ConvertFrom-Json
 $v = & $cmd version | Out-String | ConvertFrom-Json
 [pscustomobject]@{ decision = 'CONTINUED'; command = $cmd; commandType = "$($c.CommandType)"; resolved = $c.Source; cli = $v.cli; beforeSeq = $before.seq; beforeState = $before.stateId; beforeNext = $before.nextAction.id; afterSeq = $after.seq; afterState = $after.stateId; completed = @($after.completed | ForEach-Object { $_.id }); next = $after.nextAction.description; policy = "$(Get-ExecutionPolicy)" } | ConvertTo-Json -Compress
@@ -180,6 +184,10 @@ describe("ACS-001 Correction 1: canonical bare `treepo` after the documented ins
       const r = await bare(project, step);
       assert.equal(r.code, 0, `${step.join(" ")}: ${r.stdout}${r.stderr}`);
     }
+    const enteredRun = await bare(project, ENTER_STEP);
+    assert.equal(enteredRun.code, 0, `${ENTER_STEP.join(" ")}: ${enteredRun.stdout}${enteredRun.stderr}`);
+    const begun = await bare(project, [...BEGIN_STEP, "--entry", String((JSON.parse(enteredRun.stdout) as { entry: string }).entry)]);
+    assert.equal(begun.code, 0, `${BEGIN_STEP.join(" ")}: ${begun.stdout}${begun.stderr}`);
     let rep: Json;
     if (WIN) {
       const r = await powershell("Restricted", PS_AGENT, winEnv(true), project);

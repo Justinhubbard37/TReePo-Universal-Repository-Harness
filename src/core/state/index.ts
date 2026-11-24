@@ -17,7 +17,18 @@ export {
   type WorkingCopyFacts,
 } from "./schema.ts";
 export { decodeCurrent, encodeCurrent, type CurrentPointer } from "./current.ts";
-export { computeSurfaceDigests, computeSurfaceDigestsWith, digestFileSet, surfaceDigestsEqual, type SurfaceDelta } from "./surface.ts";
+export {
+  computeSurfaceDigests,
+  computeSurfaceDigestsWith,
+  digestFileSet,
+  digestOfFileSet,
+  readAuthoritativeFile,
+  readAuthoritativeFileSet,
+  requireRealNamespace,
+  surfaceDigestsEqual,
+  type AuthoritativeFile,
+  type SurfaceDelta,
+} from "./surface.ts";
 export {
   decodeObject,
   identify,

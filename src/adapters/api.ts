@@ -46,11 +46,26 @@ export interface AdapterManifest {
   readonly capabilities: readonly CapabilityDeclaration[];
   readonly prerequisites: readonly Prerequisite[];
   readonly intents: readonly IntentDeclaration[];
+  /**
+   * The lowest state schema epoch in which this adapter's namespace may be written. Installing or updating the
+   * adapter raises the project's state schema to at least this epoch, so implementations that predate it fail
+   * closed on the state instead of rewriting a namespace they would only partly preserve.
+   */
+  readonly minStateSchema?: number;
 }
 
 export interface AdapterContext {
   readonly state: ValidatedState;
   readonly facts: RepositoryFacts;
+  /** Opaque token the caller presented for this request, if any. The framework never interprets it. */
+  readonly session?: string;
+}
+
+/** What an adapter returns when asked to bring its own namespace forward from an earlier recorded format. */
+export interface MigrationResult {
+  readonly adapterState: CanonicalValue;
+  /** Plain statements of what the migration did; reported in the update result, never authority. */
+  readonly notes: readonly string[];
 }
 
 export type PrerequisiteResult = { readonly ok: true } | { readonly ok: false; readonly reason: string };
@@ -102,16 +117,25 @@ export interface WorkflowAdapter extends AdapterImplementation {
    * gives agents. Both are derived text for orientation; neither is authority.
    */
   describeProject?(adapterState: CanonicalValue | null): ProjectView;
+  /**
+   * Pure, optional: the adapter's namespace rewritten in its current format from the validated lineage, for the
+   * governed adapter update. It may not change the position, the next action, or any accepted or completed item.
+   */
+  migrateState?(context: AdapterContext): MigrationResult;
 }
 
 export interface ProjectViewSection {
   readonly title: string;
   readonly lines: readonly string[];
+  /** Text to present exactly as written (an approved template), rendered after the lines without reformatting. */
+  readonly verbatim?: readonly string[];
 }
 
 export interface ProjectView {
   readonly sections: readonly ProjectViewSection[];
   readonly guidance: readonly string[];
+  /** The same view as structured data (derived; not authority). */
+  readonly data?: CanonicalValue;
 }
 
 /** Genesis position and next action recorded by init: no workflow adapter is active yet. */

@@ -1018,3 +1018,35 @@ Base `9a4b0e4`, uncommitted working-tree delta: `src/adapters/api.ts`, `src/adap
   - During one Windows run, the two e2e suites raced in `npm pack` (EOF reading a half-built `dist/`). The failure did not recur in the next two Windows runs.
   - During one WSL run made at the same time as a full Windows run, `concurrency.test.ts` D.4 (fixed 400 ms child-readiness wait) failed once. It passed in the full WSL gate run alone and in 5 of 5 repeated runs. Neither test touches code changed by PXS-001, and `src/core/**` is unchanged.
 - Run logs were kept outside the repository and are not committed (AGENTS.md §14).
+
+## PXS-002 project-wide continuity completion and repairs R-01 to R-03 (candidate; not accepted)
+
+Base `f4f4ae8`, uncommitted working-tree delta. Records: `PXS-002-Project-Continuity-Completion.md`, `PXS-002-Authority-and-Supersession.md`, `Traceability-Ledger.md` §14. Run logs and the correction report were kept outside the tracked repository (git-ignored `evidence/`) and are not committed (AGENTS.md §14).
+
+- Toolchain: Node 24.19.0, TypeScript 6.0.3 on both platforms; Git 2.54.0.windows.1 (Windows), Git 2.53.0 (WSL).
+- Windows 11, local NTFS: typecheck clean; `npm test` 364 tests, 358 pass, 0 fail, 6 skipped, in two consecutive full runs; `npm run build` clean. The 6 skips are file-symlink cases that this Windows session cannot create (no symlink privilege); they are reported as not executed, not as passes.
+- Ubuntu under WSL2, repository on ext4: typecheck clean; `node --test "test/**/*.test.ts"` 361 tests. First full run: 360 pass, 1 fail (a symlink case in `r01-linked-authority.test.ts` whose own setup had not been given the fresh-entry step; it is skipped on Windows, so the omission only showed here). After correcting that test's setup: 361 pass, 0 fail, 0 skipped, in two consecutive full runs. Build clean. The Windows and WSL counts differ because some tests run only on Windows.
+- Starting-implementation reproductions (real code from Git history, disposable repositories): defects A, B and C all present at `f4f4ae8`/`9a4b0e4`; the R-01 and R-02 regression tests fail on `f4f4ae8` (Windows 8 of 16, WSL 13 of 16) and pass on the delta.
+- Preparation support (R-03) was exercised on Windows 11/NTFS with Windows PowerShell 5.1 only: 10 of 10 scenarios pass on the corrected script; the original script executes inherited callbacks in 4 scenarios. PowerShell 7 was not available.
+- Not produced: any actual fresh-AI interaction evidence (all agent tests are scripted processes); any run on a Windows session that can create file symbolic links.
+
+## Independent-review corrections IR-01 to IR-05 (candidate; not accepted)
+
+Base `f4f4ae8`, uncommitted working-tree delta on top of the PXS-002 candidate. Assignment: the Director's bounded correction of the independent review's findings. Records: `Traceability-Ledger.md` §15, `PXS-002-Project-Continuity-Completion.md` §12. Run logs, commands, the reviewed-candidate baseline method and the correction report are kept in the git-ignored `evidence/` folder and are not committed (AGENTS.md §14).
+
+- Toolchain: Node 24.19.0, npm 11.17.0, TypeScript 6.0.3 on both platforms; Git 2.54.0.windows.1 (Windows), Git 2.53.0 (WSL).
+- Windows 11, local NTFS: typecheck clean; `npm test` 381 tests, 374 pass, 0 fail, 7 skipped, in two consecutive full runs; `npm run build` clean. The 7 skips are file-symlink cases this Windows session cannot create (the six earlier ones plus the IR-04 link case); they are reported as not executed, not as passes.
+- Ubuntu 26.04 under WSL2, repository on ext4: typecheck clean; `node --test "test/**/*.test.ts"` 378 tests, 378 pass, 0 fail, 0 skipped, in two consecutive full runs; build clean.
+- Before/after: the 25 targeted cases (four new suites and the two updated entry suites) were run against a copy of the reviewed candidate whose 205 files were verified byte-identical to the reviewer's manifest. Before: WSL 17 fail, 8 pass (the 8 are preserved-behavior cases); Windows 16 fail, 8 pass, 1 skipped (symlink). After: WSL 25 pass; Windows 24 pass, 1 skipped (symlink). The reviewer's probes reproduce IR-01 and IR-02 (Windows and WSL) and IR-03 and IR-04 (WSL) on the reviewed candidate; on the corrected tree the adoption probe preserves the winner's valid state, and the migration and boundaries probes stop at the corrected refusals.
+- IR-05: the emitted CHOOSE MODE / CURRENT PATH / CHOOSE PATH menus were compared programmatically with the approved contract text (FEP-04, FEP-05, MP-02): byte-identical apart from the substituted CURRENT PATH value.
+- Not produced: any actual fresh-AI interaction evidence (all agent tests are scripted processes); any run on a Windows session that can create file symbolic links; PowerShell 7.
+
+## Follow-up review corrections FR-01 and FR-02 (candidate; not accepted)
+
+Base `f4f4ae8`, uncommitted working-tree delta on top of the IR-corrected candidate. Assignment: the Director's bounded correction of the follow-up review's two findings (IR-01 to IR-05 closed by that review). Records: `Traceability-Ledger.md` §16, `PXS-002-Project-Continuity-Completion.md` §13. Run logs, commands, the baseline method and the report are kept in the git-ignored `evidence/` folder and are not committed (AGENTS.md §14).
+
+- Toolchain: Node 24.19.0, npm 11.17.0, TypeScript 6.0.3 on both platforms; Git 2.54.0.windows.1 (Windows), Git 2.53.0 (WSL).
+- Windows 11, local NTFS: typecheck clean; `npm test` 391 tests, 384 pass, 0 fail, 7 skipped; `npm run build` clean. The 7 skips are the same file-symlink cases as before (not executed, not passes).
+- Ubuntu 26.04 under WSL2, repository on ext4: typecheck clean; `node --test "test/**/*.test.ts"` 388 tests, 388 pass, 0 fail, 0 skipped; build clean.
+- Before/after: the 10 new cases were run against a copy of the reviewed candidate verified byte-identical to the reviewer's 179-file manifest (only the two new test files added). Before: 8 fail, 2 pass (the planning route and `--next` text handling, which are meant to stay unchanged), on both platforms. After: 10 pass on both. The reviewer's observation probe reproduces both findings on the baseline on both platforms.
+- Not produced: any actual fresh-AI interaction evidence; any run on a Windows session that can create file symbolic links; PowerShell 7.

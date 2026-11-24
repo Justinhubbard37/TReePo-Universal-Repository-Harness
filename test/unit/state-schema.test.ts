@@ -37,7 +37,9 @@ describe("state object shape", () => {
   });
 
   it("rejects wrong schemaVersion/kind and bad seq", () => {
-    expectMalformed((o) => { o["schemaVersion"] = 2; }, "schemaVersion");
+    expectMalformed((o) => { o["schemaVersion"] = 3; }, "schemaVersion");
+    expectMalformed((o) => { o["schemaVersion"] = 0; }, "schemaVersion");
+    expectMalformed((o) => { o["schemaVersion"] = "2"; }, "schemaVersion");
     expectMalformed((o) => { o["kind"] = "other"; }, "kind");
     expectMalformed((o) => { o["seq"] = -1; }, "seq");
     expectMalformed((o) => { o["seq"] = 1.5; }, "seq");
